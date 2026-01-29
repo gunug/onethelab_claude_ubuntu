@@ -566,6 +566,64 @@ class ChatClient {
                     </div>
                 </div>
             `;
+        } else if (data.tool === 'AskUserQuestion' && data.edit_info && data.edit_info.type === 'ask_user') {
+            // AskUserQuestion 도구: 사용자 질문 UI 표시
+            const askId = `ask-user-${data.turn}`;
+            const questions = data.edit_info.questions || [];
+            let questionsHtml = '';
+
+            for (let qIdx = 0; qIdx < questions.length; qIdx++) {
+                const q = questions[qIdx];
+                const questionText = q.question || '';
+                const header = q.header || '';
+                const options = q.options || [];
+                const multiSelect = q.multiSelect || false;
+
+                let optionsHtml = '';
+                for (let oIdx = 0; oIdx < options.length; oIdx++) {
+                    const opt = options[oIdx];
+                    const label = opt.label || '';
+                    const desc = opt.description || '';
+                    optionsHtml += `
+                        <button class="ask-option-btn" data-question="${qIdx}" data-option="${oIdx}" data-multi="${multiSelect}">
+                            <div class="ask-option-label">${this.escapeHtml(label)}</div>
+                            ${desc ? `<div class="ask-option-desc">${this.escapeHtml(desc)}</div>` : ''}
+                        </button>
+                    `;
+                }
+                // 기타 옵션 (Other) 추가
+                optionsHtml += `
+                    <button class="ask-option-btn" data-question="${qIdx}" data-option="other" data-multi="${multiSelect}">
+                        <div class="ask-option-label">기타 (직접 입력)</div>
+                    </button>
+                    <input type="text" class="ask-other-input hidden" data-question="${qIdx}" placeholder="직접 입력...">
+                `;
+
+                questionsHtml += `
+                    <div class="ask-question-item" data-question-idx="${qIdx}">
+                        ${header ? `<span class="ask-question-header">${this.escapeHtml(header)}</span>` : ''}
+                        <div class="ask-question-text">${this.escapeHtml(questionText)}</div>
+                        <div class="ask-question-options">
+                            ${optionsHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
+            editDiffHtml = `
+                <div class="ask-user-question" id="${askId}">
+                    <div class="ask-user-question-header">
+                        <span>❓ 사용자 응답 필요 (${questions.length}개 질문)</span>
+                    </div>
+                    <div class="ask-user-question-body">
+                        ${questionsHtml}
+                        <button class="ask-submit-btn" data-ask-id="${askId}" disabled>응답 제출</button>
+                    </div>
+                </div>
+            `;
+
+            // 이벤트 바인딩을 위해 setTimeout 사용 (DOM 렌더링 후)
+            setTimeout(() => this.bindAskUserEvents(askId), 0);
         }
 
         stepEl.innerHTML = `
@@ -677,9 +735,160 @@ class ChatClient {
             'Grep': '🔍',
             'Glob': '📁',
             'WebFetch': '🌐',
-            'WebSearch': '🔎'
+            'WebSearch': '🔎',
+            'AskUserQuestion': '❓'
         };
         return icons[tool] || '🔧';
+    }
+
+    bindAskUserEvents(askId) {
+        const container = document.getElementById(askId);
+        if (!container) return;
+
+        const optionBtns = container.querySelectorAll('.ask-option-btn');
+        const submitBtn = container.querySelector('.ask-submit-btn');
+        const selectedAnswers = {};  // { questionIdx: [optionIdx...] or 'other' }
+
+        optionBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const questionIdx = btn.dataset.question;
+                const optionIdx = btn.dataset.option;
+                const isMulti = btn.dataset.multi === 'true';
+                const otherInput = container.querySelector(`.ask-other-input[data-question="${questionIdx}"]`);
+
+                if (optionIdx === 'other') {
+                    // 기타 선택 시 입력창 표시
+                    if (!selectedAnswers[questionIdx] || selectedAnswers[questionIdx] !== 'other') {
+                        // 같은 질문의 다른 선택 해제
+                        container.querySelectorAll(`.ask-option-btn[data-question="${questionIdx}"]`).forEach(b => {
+                            b.classList.remove('selected');
+                        });
+                        btn.classList.add('selected');
+                        selectedAnswers[questionIdx] = 'other';
+                        otherInput.classList.remove('hidden');
+                        otherInput.focus();
+                    } else {
+                        btn.classList.remove('selected');
+                        delete selectedAnswers[questionIdx];
+                        otherInput.classList.add('hidden');
+                        otherInput.value = '';
+                    }
+                } else {
+                    if (isMulti) {
+                        // 멀티 선택
+                        if (!selectedAnswers[questionIdx]) {
+                            selectedAnswers[questionIdx] = [];
+                        }
+                        if (Array.isArray(selectedAnswers[questionIdx])) {
+                            const idx = selectedAnswers[questionIdx].indexOf(optionIdx);
+                            if (idx > -1) {
+                                selectedAnswers[questionIdx].splice(idx, 1);
+                                btn.classList.remove('selected');
+                            } else {
+                                selectedAnswers[questionIdx].push(optionIdx);
+                                btn.classList.add('selected');
+                            }
+                            // 기타 선택 해제
+                            const otherBtn = container.querySelector(`.ask-option-btn[data-question="${questionIdx}"][data-option="other"]`);
+                            if (otherBtn) otherBtn.classList.remove('selected');
+                            otherInput.classList.add('hidden');
+                            otherInput.value = '';
+                        }
+                    } else {
+                        // 단일 선택
+                        container.querySelectorAll(`.ask-option-btn[data-question="${questionIdx}"]`).forEach(b => {
+                            b.classList.remove('selected');
+                        });
+                        btn.classList.add('selected');
+                        selectedAnswers[questionIdx] = [optionIdx];
+                        otherInput.classList.add('hidden');
+                        otherInput.value = '';
+                    }
+                }
+
+                // 제출 버튼 활성화 여부 확인
+                const totalQuestions = container.querySelectorAll('.ask-question-item').length;
+                const answeredQuestions = Object.keys(selectedAnswers).filter(k => {
+                    const val = selectedAnswers[k];
+                    if (val === 'other') {
+                        const input = container.querySelector(`.ask-other-input[data-question="${k}"]`);
+                        return input && input.value.trim() !== '';
+                    }
+                    return Array.isArray(val) && val.length > 0;
+                }).length;
+                submitBtn.disabled = answeredQuestions < totalQuestions;
+            });
+        });
+
+        // 기타 입력창 변경 시 제출 버튼 활성화 확인
+        container.querySelectorAll('.ask-other-input').forEach(input => {
+            input.addEventListener('input', () => {
+                const totalQuestions = container.querySelectorAll('.ask-question-item').length;
+                const answeredQuestions = Object.keys(selectedAnswers).filter(k => {
+                    const val = selectedAnswers[k];
+                    if (val === 'other') {
+                        const inp = container.querySelector(`.ask-other-input[data-question="${k}"]`);
+                        return inp && inp.value.trim() !== '';
+                    }
+                    return Array.isArray(val) && val.length > 0;
+                }).length;
+                submitBtn.disabled = answeredQuestions < totalQuestions;
+            });
+        });
+
+        // 제출 버튼 클릭
+        submitBtn.addEventListener('click', async () => {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '제출 중...';
+
+            // 응답 데이터 구성
+            const answers = {};
+            for (const [qIdx, val] of Object.entries(selectedAnswers)) {
+                if (val === 'other') {
+                    const input = container.querySelector(`.ask-other-input[data-question="${qIdx}"]`);
+                    answers[qIdx] = input ? input.value.trim() : '';
+                } else if (Array.isArray(val)) {
+                    answers[qIdx] = val.join(',');
+                }
+            }
+
+            try {
+                // 응답을 채팅 메시지로 전송
+                const responseText = Object.entries(answers).map(([qIdx, ans]) => {
+                    return `Q${parseInt(qIdx) + 1}: ${ans}`;
+                }).join(' | ');
+
+                await this.channel.send({
+                    type: 'broadcast',
+                    event: 'message',
+                    payload: {
+                        username: this.username,
+                        message: `[응답] ${responseText}`
+                    }
+                });
+
+                // UI 업데이트
+                container.classList.add('ask-user-resolved');
+                submitBtn.textContent = '응답 완료';
+
+                // 옵션 버튼 비활성화
+                container.querySelectorAll('.ask-option-btn').forEach(btn => {
+                    btn.classList.add('disabled');
+                    btn.disabled = true;
+                });
+                container.querySelectorAll('.ask-other-input').forEach(input => {
+                    input.disabled = true;
+                });
+
+                this.addMessage(this.username, `[응답] ${responseText}`, true);
+
+            } catch (error) {
+                console.error('응답 전송 오류:', error);
+                submitBtn.disabled = false;
+                submitBtn.textContent = '응답 제출';
+                this.addSystemMessage('응답 전송 실패. 다시 시도해주세요.');
+            }
+        });
     }
 
     addMessage(sender, text, isMine = false) {

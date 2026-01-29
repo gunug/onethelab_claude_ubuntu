@@ -364,6 +364,23 @@ class ChatBot:
                                                 content = todo.get("content", "")
                                                 status_icon = "⏳" if status == "pending" else "🔄" if status == "in_progress" else "✅"
                                                 print(f"  {status_icon} {content}")
+                                    elif tool_name == "AskUserQuestion":
+                                        questions = tool_input.get("questions", [])
+                                        if questions and isinstance(questions, list):
+                                            # AskUserQuestion 정보를 edit_info로 전송
+                                            edit_info = {
+                                                "type": "ask_user",
+                                                "questions": questions
+                                            }
+                                            detail = f"{len(questions)}개 질문"
+                                            print(f"[Claude] [{current_turn}] AskUserQuestion:")
+                                            for q in questions:
+                                                question = q.get("question", "")
+                                                options = q.get("options", [])
+                                                print(f"  Q: {question}")
+                                                for opt in options:
+                                                    label = opt.get("label", "") if isinstance(opt, dict) else str(opt)
+                                                    print(f"    - {label}")
 
                                     print(f"[Claude] [{current_turn}] {tool_name} 실행 중... {detail}")
                                     progress_data = {
