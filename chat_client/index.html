@@ -866,6 +866,153 @@
             color: #666;
             font-size: 0.75rem;
         }
+        /* Usage UI */
+        .usage-container {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px 8px;
+            font-size: 0.75rem;
+            color: #888;
+        }
+        .usage-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+        }
+        .usage-label {
+            color: #666;
+        }
+        .usage-value {
+            color: #4ade80;
+            font-weight: 500;
+        }
+        .usage-value.warning {
+            color: #f59e0b;
+        }
+        .usage-value.danger {
+            color: #ef4444;
+        }
+        .usage-divider {
+            color: #333;
+        }
+        /* 좁은 화면에서 divider 숨김 */
+        @media (max-width: 600px) {
+            .usage-divider {
+                display: none;
+            }
+        }
+        /* Usage Info Icon & Panel */
+        .usage-info-icon {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #333;
+            color: #888;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .usage-info-icon:hover {
+            background: #4ade80;
+            color: #000;
+        }
+        .usage-info-icon.active {
+            background: #4ade80;
+            color: #000;
+        }
+        .usage-info-panel {
+            position: fixed;
+            top: 50px;
+            right: 16px;
+            width: 360px;
+            max-width: calc(100vw - 32px);
+            max-height: calc(100vh - 150px);
+            background: #0d1b2a;
+            border: 1px solid #4ade80;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 200;
+            overflow: hidden;
+            display: none;
+        }
+        .usage-info-panel.visible {
+            display: block;
+        }
+        .usage-info-header {
+            background: #1b3a2a;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #333;
+        }
+        .usage-info-title {
+            color: #4ade80;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .usage-info-close {
+            color: #888;
+            cursor: pointer;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+        .usage-info-close:hover {
+            color: #ef4444;
+        }
+        .usage-info-body {
+            padding: 14px;
+            overflow-y: auto;
+            max-height: calc(100vh - 220px);
+            font-size: 0.8rem;
+            line-height: 1.6;
+            color: #ccc;
+        }
+        .usage-info-body h3 {
+            color: #e94560;
+            font-size: 0.9rem;
+            margin: 16px 0 8px 0;
+        }
+        .usage-info-body h3:first-child {
+            margin-top: 0;
+        }
+        .usage-info-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 8px 0;
+            font-size: 0.75rem;
+        }
+        .usage-info-body th, .usage-info-body td {
+            border: 1px solid #333;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        .usage-info-body th {
+            background: #1a1a2e;
+            color: #e94560;
+        }
+        .usage-info-body ul {
+            margin: 8px 0;
+            padding-left: 18px;
+        }
+        .usage-info-body li {
+            margin: 4px 0;
+        }
+        .usage-info-body .note {
+            background: #1a1a2e;
+            border-left: 3px solid #f59e0b;
+            padding: 8px 12px;
+            margin: 10px 0;
+            font-size: 0.75rem;
+            color: #f59e0b;
+        }
     </style>
 </head>
 <body>
@@ -876,12 +1023,94 @@
         <button id="joinBtn">참가하기</button>
     </div>
 
+    <!-- OTP 인증 화면 -->
+    <div id="otpScreen" class="login-container hidden">
+        <h1>🔐 OTP 인증</h1>
+        <p style="color: #888; font-size: 0.9rem; margin-bottom: 16px;">Google Authenticator 앱의 6자리 코드를 입력하세요</p>
+        <input type="text" id="otpInput" placeholder="000000" maxlength="6" pattern="[0-9]*" inputmode="numeric" style="letter-spacing: 8px; font-size: 1.5rem; text-align: center;">
+        <button id="otpVerifyBtn">인증하기</button>
+        <p id="otpError" style="color: #ef4444; font-size: 0.85rem; margin-top: 8px;" class="hidden">인증 코드가 올바르지 않습니다.</p>
+        <p id="otpInfo" style="color: #4ade80; font-size: 0.85rem; margin-top: 8px;" class="hidden"></p>
+    </div>
+
     <!-- 채팅 화면 -->
     <div id="chatScreen" class="hidden">
         <div class="header">
             <h1>Chat Room</h1>
             <div class="header-center">
                 <div id="status" class="status">연결 중...</div>
+                <div id="usageContainer" class="usage-container">
+                    <div class="usage-item">
+                        <span class="usage-label">5시간 블록 사용:</span>
+                        <span id="usageBlock" class="usage-value">-</span>
+                    </div>
+                    <div class="usage-item">
+                        <span class="usage-label">블록 리셋까지:</span>
+                        <span id="usageRemaining" class="usage-value">-</span>
+                    </div>
+                    <span class="usage-divider">|</span>
+                    <div class="usage-item">
+                        <span class="usage-label">오늘 총 사용:</span>
+                        <span id="usageToday" class="usage-value">-</span>
+                    </div>
+                    <span id="usageInfoIcon" class="usage-info-icon" title="사용량 제한 정보">ⓘ</span>
+                </div>
+                <!-- 사용량 정보 패널 -->
+                <div id="usageInfoPanel" class="usage-info-panel">
+                    <div class="usage-info-header">
+                        <span class="usage-info-title">📊 Claude Code 사용량 제한 정보</span>
+                        <span id="usageInfoClose" class="usage-info-close">×</span>
+                    </div>
+                    <div class="usage-info-body">
+                        <h3>플랜별 예상 사용량 (5시간 블록 기준)</h3>
+                        <table>
+                            <tr>
+                                <th>플랜</th>
+                                <th>월 요금</th>
+                                <th>예상 메시지 수</th>
+                            </tr>
+                            <tr>
+                                <td>Pro</td>
+                                <td>$20</td>
+                                <td>약 45개 (실제 10-40개)</td>
+                            </tr>
+                            <tr>
+                                <td>Max 5x</td>
+                                <td>$100</td>
+                                <td>약 225개 이상</td>
+                            </tr>
+                            <tr>
+                                <td>Max 20x</td>
+                                <td>$200</td>
+                                <td>약 900개 이상</td>
+                            </tr>
+                        </table>
+
+                        <h3>5시간 롤링 윈도우</h3>
+                        <ul>
+                            <li>첫 메시지 전송 시 5시간 타이머 시작</li>
+                            <li>5시간 후 다음 메시지 전송 시 리셋</li>
+                            <li>Claude 웹/앱과 Claude Code가 동일한 한도 공유</li>
+                        </ul>
+
+                        <h3>주간 제한</h3>
+                        <ul>
+                            <li>Pro: 약 40-80시간</li>
+                            <li>Max: 비례하여 증가</li>
+                        </ul>
+
+                        <div class="note">
+                            ⚠️ 정확한 수치는 Anthropic에서 공식 공개하지 않습니다.<br>
+                            실제 사용량은 대화 길이, 모델 선택(Opus vs Sonnet), 코드 복잡도에 따라 달라집니다.
+                        </div>
+
+                        <h3>추가 사용량</h3>
+                        <ul>
+                            <li>한도 초과 시 API 요금제로 전환 가능</li>
+                            <li>표준 API 요금으로 계속 사용</li>
+                        </ul>
+                    </div>
+                </div>
                 <div class="auto-scroll-container">
                     <input type="checkbox" id="autoScrollCheckbox" checked>
                     <label for="autoScrollCheckbox">자동 스크롤</label>

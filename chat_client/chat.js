@@ -22,6 +22,10 @@ class ChatClient {
         this.queueCollapsed = false;  // 대기열 접힘 상태
         this.previousQueueCount = 0;  // 이전 대기열 수 (완료 알림용)
         this.queueSoundEnabled = localStorage.getItem('queue_sound') !== 'false';  // 소리 알림 설정
+        // OTP 인증 관련
+        this.authToken = localStorage.getItem('auth_token') || null;
+        this.authExpires = parseInt(localStorage.getItem('auth_expires') || '0', 10);
+        this.otpRequired = false;  // OTP 인증 필요 여부 (서버에서 결정)
         this.init();
     }
 
@@ -29,6 +33,7 @@ class ChatClient {
         // DOM 요소
         this.loginScreen = document.getElementById('loginScreen');
         this.chatScreen = document.getElementById('chatScreen');
+        this.otpScreen = document.getElementById('otpScreen');
         this.usernameInput = document.getElementById('usernameInput');
         this.joinBtn = document.getElementById('joinBtn');
         this.messageInput = document.getElementById('messageInput');
@@ -39,6 +44,11 @@ class ChatClient {
         this.clearSessionBtn = document.getElementById('clearSessionBtn');
         this.autoScrollCheckbox = document.getElementById('autoScrollCheckbox');
         this.queueSoundCheckbox = document.getElementById('queueSoundCheckbox');
+        // OTP 관련 DOM 요소
+        this.otpInput = document.getElementById('otpInput');
+        this.otpVerifyBtn = document.getElementById('otpVerifyBtn');
+        this.otpError = document.getElementById('otpError');
+        this.otpInfo = document.getElementById('otpInfo');
 
         // 이벤트 바인딩
         this.joinBtn.addEventListener('click', () => this.join());
@@ -51,6 +61,20 @@ class ChatClient {
         });
         this.changeNameBtn.addEventListener('click', () => this.changeName());
         this.clearSessionBtn.addEventListener('click', () => this.clearSession());
+
+        // OTP 이벤트 바인딩
+        if (this.otpVerifyBtn) {
+            this.otpVerifyBtn.addEventListener('click', () => this.verifyOtp());
+        }
+        if (this.otpInput) {
+            this.otpInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.verifyOtp();
+            });
+            // 숫자만 입력 허용
+            this.otpInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+            });
+        }
 
         // 소리 알림 체크박스 이벤트
         if (this.queueSoundCheckbox) {
@@ -86,16 +110,127 @@ class ChatClient {
 
         // 큐 UI 초기화
         this.initQueueUI();
+
+        // 사용량 정보 패널 초기화
+        this.initUsageInfoPanel();
     }
 
     checkSavedUsername() {
         const savedUsername = localStorage.getItem('chat_username');
         if (savedUsername) {
             this.username = savedUsername;
-            this.loginScreen.classList.add('hidden');
-            this.chatScreen.classList.remove('hidden');
-            this.connect();
+            // 인증 토큰 유효성 확인
+            if (this.isAuthValid()) {
+                // 토큰 유효: 바로 채팅 화면으로
+                this.loginScreen.classList.add('hidden');
+                this.chatScreen.classList.remove('hidden');
+                this.connect();
+            } else {
+                // 토큰 만료/없음: 연결 후 OTP 필요 여부 확인
+                this.loginScreen.classList.add('hidden');
+                this.chatScreen.classList.remove('hidden');
+                this.connect();
+            }
         }
+    }
+
+    isAuthValid() {
+        // 인증 토큰 유효성 확인
+        if (!this.authToken) return false;
+        if (Date.now() > this.authExpires) {
+            // 만료됨
+            this.clearAuthToken();
+            return false;
+        }
+        return true;
+    }
+
+    clearAuthToken() {
+        this.authToken = null;
+        this.authExpires = 0;
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_expires');
+    }
+
+    saveAuthToken(token, expiresIn) {
+        this.authToken = token;
+        this.authExpires = Date.now() + (expiresIn * 1000);
+        localStorage.setItem('auth_token', token);
+        localStorage.setItem('auth_expires', this.authExpires.toString());
+    }
+
+    showOtpScreen() {
+        this.loginScreen.classList.add('hidden');
+        this.chatScreen.classList.add('hidden');
+        this.otpScreen.classList.remove('hidden');
+        this.otpInput.value = '';
+        this.otpError.classList.add('hidden');
+        this.otpInput.focus();
+    }
+
+    async verifyOtp() {
+        const otpCode = this.otpInput.value.trim();
+        if (otpCode.length !== 6) {
+            this.otpError.textContent = '6자리 코드를 입력하세요.';
+            this.otpError.classList.remove('hidden');
+            return;
+        }
+
+        this.otpVerifyBtn.disabled = true;
+        this.otpVerifyBtn.textContent = '인증 중...';
+        this.otpError.classList.add('hidden');
+
+        try {
+            await this.channel.send({
+                type: 'broadcast',
+                event: 'otp_verify',
+                payload: {
+                    username: this.username,
+                    otp_code: otpCode
+                }
+            });
+            // 결과는 otp_result 이벤트로 수신
+        } catch (error) {
+            console.error('OTP 인증 요청 실패:', error);
+            this.otpError.textContent = '인증 요청 실패. 다시 시도하세요.';
+            this.otpError.classList.remove('hidden');
+            this.otpVerifyBtn.disabled = false;
+            this.otpVerifyBtn.textContent = '인증하기';
+        }
+    }
+
+    onOtpResult(data) {
+        const { username, success, token, expires_in } = data;
+        if (username !== this.username) return;
+
+        this.otpVerifyBtn.disabled = false;
+        this.otpVerifyBtn.textContent = '인증하기';
+
+        if (success) {
+            // 인증 성공
+            this.saveAuthToken(token, expires_in);
+            this.otpRequired = false;
+            this.otpScreen.classList.add('hidden');
+            this.chatScreen.classList.remove('hidden');
+            this.addSystemMessage('OTP 인증 성공! 채팅을 시작하세요.');
+            // 사용량 조회 요청
+            this.requestUsageStatus();
+        } else {
+            // 인증 실패
+            this.otpError.textContent = '인증 코드가 올바르지 않습니다. 다시 시도하세요.';
+            this.otpError.classList.remove('hidden');
+            this.otpInput.value = '';
+            this.otpInput.focus();
+        }
+    }
+
+    onAuthRequired(data) {
+        const { username, message } = data;
+        if (username !== this.username) return;
+
+        console.log('인증 필요:', message);
+        this.otpRequired = true;
+        this.showOtpScreen();
     }
 
     changeName() {
@@ -128,7 +263,8 @@ class ChatClient {
                     type: 'broadcast',
                     event: 'session_reset',
                     payload: {
-                        username: this.username
+                        username: this.username,
+                        auth_token: this.authToken || ''
                     }
                 });
                 this.addSystemMessage('새 세션이 시작되었습니다.');
@@ -195,6 +331,15 @@ class ChatClient {
                 .on('broadcast', { event: 'queue_status' }, (payload) => {
                     this.onQueueStatus(payload.payload);
                 })
+                .on('broadcast', { event: 'usage_status' }, (payload) => {
+                    this.onUsageStatus(payload.payload);
+                })
+                .on('broadcast', { event: 'otp_result' }, (payload) => {
+                    this.onOtpResult(payload.payload);
+                })
+                .on('broadcast', { event: 'auth_required' }, (payload) => {
+                    this.onAuthRequired(payload.payload);
+                })
                 .subscribe((status, err) => {
                     this.isConnecting = false;
 
@@ -212,6 +357,9 @@ class ChatClient {
                         }
 
                         this.startHeartbeat();
+
+                        // 접속 시 사용량 조회 요청
+                        this.requestUsageStatus();
                     } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
                         console.log('채널 연결 실패/종료:', status, err);
                         this.updateStatus('연결 끊김', false);
@@ -315,6 +463,22 @@ class ChatClient {
         }, HEARTBEAT_INTERVAL);
     }
 
+    async requestUsageStatus() {
+        // Python 봇에게 사용량 조회 요청 전송
+        if (this.channel) {
+            try {
+                await this.channel.send({
+                    type: 'broadcast',
+                    event: 'request_usage',
+                    payload: {}
+                });
+                console.log('사용량 조회 요청 전송');
+            } catch (error) {
+                console.error('사용량 조회 요청 실패:', error);
+            }
+        }
+    }
+
     onMessage(data) {
         const { username, message } = data;
         if (username === this.username) return;
@@ -335,6 +499,69 @@ class ChatClient {
         this.updateQueueUI(count, items);
     }
 
+    onUsageStatus(data) {
+        const { today, totals, block } = data;
+        console.log('사용량 상태:', data);
+
+        const usageTodayEl = document.getElementById('usageToday');
+        const usageBlockEl = document.getElementById('usageBlock');
+        const usageRemainingEl = document.getElementById('usageRemaining');
+
+        // 오늘 사용량 표시
+        if (usageTodayEl) {
+            if (today && today.totalCost !== undefined) {
+                const todayCostUsd = today.totalCost;
+                const todayCostKrw = todayCostUsd * USD_TO_KRW;
+                usageTodayEl.textContent = `$${todayCostUsd.toFixed(2)} (₩${Math.round(todayCostKrw).toLocaleString()})`;
+
+                // 비용에 따른 색상 변경 (경고: $50 이상, 위험: $100 이상)
+                usageTodayEl.classList.remove('warning', 'danger');
+                if (todayCostUsd >= 100) {
+                    usageTodayEl.classList.add('danger');
+                } else if (todayCostUsd >= 50) {
+                    usageTodayEl.classList.add('warning');
+                }
+            } else {
+                usageTodayEl.textContent = '$0.00';
+            }
+        }
+
+        // 5시간 블록 사용량 표시
+        if (usageBlockEl) {
+            if (block && block.costUSD !== undefined) {
+                const blockCostUsd = block.costUSD;
+                const blockCostKrw = blockCostUsd * USD_TO_KRW;
+                usageBlockEl.textContent = `$${blockCostUsd.toFixed(2)} (₩${Math.round(blockCostKrw).toLocaleString()})`;
+            } else {
+                usageBlockEl.textContent = '-';
+            }
+        }
+
+        // 남은 시간 표시
+        if (usageRemainingEl) {
+            if (block && block.remainingMinutes !== undefined) {
+                const remaining = block.remainingMinutes;
+                if (remaining > 60) {
+                    const hours = Math.floor(remaining / 60);
+                    const mins = remaining % 60;
+                    usageRemainingEl.textContent = `${hours}시간 ${mins}분`;
+                } else {
+                    usageRemainingEl.textContent = `${remaining}분`;
+                }
+
+                // 남은 시간에 따른 색상 변경 (경고: 60분 이하, 위험: 30분 이하)
+                usageRemainingEl.classList.remove('warning', 'danger');
+                if (remaining <= 30) {
+                    usageRemainingEl.classList.add('danger');
+                } else if (remaining <= 60) {
+                    usageRemainingEl.classList.add('warning');
+                }
+            } else {
+                usageRemainingEl.textContent = '-';
+            }
+        }
+    }
+
     initQueueUI() {
         // HTML에 고정된 큐 UI 요소 참조
         this.queueElement = document.getElementById('queueContainer');
@@ -353,6 +580,43 @@ class ChatClient {
                 body.classList.add('collapsed');
                 toggle.textContent = '펼치기';
                 this.queueCollapsed = true;
+            }
+        });
+    }
+
+    initUsageInfoPanel() {
+        const infoIcon = document.getElementById('usageInfoIcon');
+        const infoPanel = document.getElementById('usageInfoPanel');
+        const closeBtn = document.getElementById('usageInfoClose');
+
+        if (!infoIcon || !infoPanel) return;
+
+        // 아이콘 클릭 시 토글
+        infoIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = infoPanel.classList.contains('visible');
+            if (isVisible) {
+                infoPanel.classList.remove('visible');
+                infoIcon.classList.remove('active');
+            } else {
+                infoPanel.classList.add('visible');
+                infoIcon.classList.add('active');
+            }
+        });
+
+        // 닫기 버튼 클릭
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                infoPanel.classList.remove('visible');
+                infoIcon.classList.remove('active');
+            });
+        }
+
+        // 패널 외부 클릭 시 닫기
+        document.addEventListener('click', (e) => {
+            if (!infoPanel.contains(e.target) && !infoIcon.contains(e.target)) {
+                infoPanel.classList.remove('visible');
+                infoIcon.classList.remove('active');
             }
         });
     }
@@ -1069,7 +1333,8 @@ class ChatClient {
                 event: 'message',
                 payload: {
                     username: this.username,
-                    message: message
+                    message: message,
+                    auth_token: this.authToken || ''
                 }
             });
 

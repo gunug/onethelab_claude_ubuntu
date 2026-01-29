@@ -5,13 +5,15 @@
 (없음)
 
 ## 대기 중
-- [ ] 요청 완료 시 소리 알림
 - [ ] Tools 표시 업데이트 하기 (claude_code_tools.md 참고)
   - Read: 파일 줄 수 표시
   - Grep: 검색 패턴 및 경로 표시
   - Task: 서브 에이전트 유형 표시
   - Glob: 검색 패턴 표시
   - WebFetch/WebSearch: URL/쿼리 표시
+- [ ] WebSearch 추가정보 출력
+- [ ] WebFetch 추가정보 출력
+- [ ] Glob 추가정보 출력
 
 ## 완료
 
@@ -30,6 +32,13 @@
   - Python 봇의 Claude 세션 리셋
   - /clear 명령어로 세션 초기화
 - [x] 자동 스크롤 기능 수정
+- [x] 요청 완료 시 소리 알림
+- [x] 사용량 표시 기능 구현
+  - Python 봇: ccusage로 사용량 조회 및 Broadcast 전송
+  - HTML 클라이언트: 헤더에 오늘/전체 비용 표시 (USD/KRW)
+- [x] 5시간 블록 사용량 및 남은 시간 표시
+  - Python 봇: ccusage blocks로 활성 블록 정보 조회
+  - HTML 클라이언트: 블록 비용, 남은 시간 표시 (경고/위험 색상)
 - [x] TodoWrite UI 표시 구현
 - [x] Edit, Write, Bash, TodoWrite 추가 정보 줄 바꿈 표시
 - [x] claude_code_tools.md 문서 작성

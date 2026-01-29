@@ -6,9 +6,12 @@ import subprocess
 import threading
 import signal
 import uuid
+import secrets
+from datetime import datetime, timedelta
 from queue import Queue, Empty
 from dotenv import load_dotenv
 from supabase._async.client import create_client, AsyncClient
+import pyotp
 
 # Windows asyncio SSL 종료 문제 해결
 if sys.platform == "win32":
@@ -18,6 +21,7 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+TOTP_SECRET_KEY = os.getenv("TOTP_SECRET_KEY")
 
 # USD to KRW 환율 (2026년 1월 기준)
 USD_TO_KRW = 1430
@@ -26,6 +30,103 @@ USD_TO_KRW = 1430
 RECONNECT_DELAY = 5  # 재연결 대기 시간 (초)
 MAX_RECONNECT_ATTEMPTS = 10  # 최대 재연결 시도 횟수
 CLAUDE_TIMEOUT = 300  # Claude CLI 타임아웃 (초)
+OTP_SESSION_DURATION = 3600  # OTP 세션 유효 시간 (초) - 1시간
+
+
+def get_claude_usage():
+    """ccusage를 통해 오늘의 Claude 사용량 조회"""
+    try:
+        result = subprocess.run(
+            'npx ccusage@latest daily --json',
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            shell=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            print(f"[DEBUG] ccusage 실행 실패: {result.stderr}")
+            return None
+
+        data = json.loads(result.stdout)
+        daily_data = data.get("daily", [])
+        totals = data.get("totals", {})
+
+        # 오늘 날짜의 데이터 찾기
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_usage = None
+        for day in daily_data:
+            if day.get("date") == today:
+                today_usage = day
+                break
+
+        return {
+            "today": today_usage,
+            "totals": totals,
+            "date": today
+        }
+    except subprocess.TimeoutExpired:
+        print("[DEBUG] ccusage 타임아웃")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] ccusage JSON 파싱 실패: {e}")
+        return None
+    except Exception as e:
+        print(f"[DEBUG] ccusage 오류: {e}")
+        return None
+
+
+def get_claude_blocks():
+    """ccusage를 통해 5시간 블록 사용량 조회"""
+    try:
+        result = subprocess.run(
+            'npx ccusage@latest blocks --json',
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            shell=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            print(f"[DEBUG] ccusage blocks 실행 실패: {result.stderr}")
+            return None
+
+        data = json.loads(result.stdout)
+        blocks = data.get("blocks", [])
+
+        # 현재 활성 블록 찾기
+        active_block = None
+        for block in blocks:
+            if block.get("isActive") and not block.get("isGap"):
+                active_block = block
+                break
+
+        if not active_block:
+            return None
+
+        # 블록 정보 추출
+        projection = active_block.get("projection", {})
+        burn_rate = active_block.get("burnRate", {})
+
+        return {
+            "startTime": active_block.get("startTime"),
+            "endTime": active_block.get("endTime"),
+            "costUSD": active_block.get("costUSD", 0),
+            "totalTokens": active_block.get("totalTokens", 0),
+            "remainingMinutes": projection.get("remainingMinutes", 0) if projection else 0,
+            "projectedCost": projection.get("totalCost", 0) if projection else 0,
+            "costPerHour": burn_rate.get("costPerHour", 0) if burn_rate else 0,
+            "models": active_block.get("models", [])
+        }
+    except subprocess.TimeoutExpired:
+        print("[DEBUG] ccusage blocks 타임아웃")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG] ccusage blocks JSON 파싱 실패: {e}")
+        return None
+    except Exception as e:
+        print(f"[DEBUG] ccusage blocks 오류: {e}")
+        return None
 
 
 def test_claude_cli():
@@ -170,11 +271,65 @@ class ChatBot:
         # 요청 큐 관련
         self.request_queue = []  # 대기 중인 요청 목록 [{"sender": str, "message": str}, ...]
         self.queue_lock = threading.Lock()  # 큐 접근 동기화
+        # OTP 인증 관련
+        self.totp = pyotp.TOTP(TOTP_SECRET_KEY) if TOTP_SECRET_KEY else None
+        self.authenticated_sessions = {}  # {session_token: {"username": str, "expires": datetime}}
+        self.auth_lock = threading.Lock()  # 인증 세션 접근 동기화
 
     def reset_session(self):
         """Claude 세션 리셋 - 새 세션 ID 생성"""
         self.session_id = str(uuid.uuid4())
         self.session_started = False
+
+    def verify_otp(self, code: str) -> bool:
+        """OTP 코드 검증 (±30초 허용)"""
+        if not self.totp:
+            print("[DEBUG] TOTP 설정 안됨, 인증 건너뜀")
+            return True  # TOTP 설정 안되면 인증 없이 통과
+        try:
+            return self.totp.verify(code, valid_window=1)
+        except Exception as e:
+            print(f"[DEBUG] OTP 검증 오류: {e}")
+            return False
+
+    def create_auth_session(self, username: str) -> str:
+        """인증 세션 생성 및 토큰 반환"""
+        with self.auth_lock:
+            # 기존 세션 정리 (만료된 것 제거)
+            now = datetime.now()
+            expired = [k for k, v in self.authenticated_sessions.items() if v["expires"] < now]
+            for k in expired:
+                del self.authenticated_sessions[k]
+
+            # 새 토큰 생성
+            token = secrets.token_hex(16)
+            self.authenticated_sessions[token] = {
+                "username": username,
+                "expires": now + timedelta(seconds=OTP_SESSION_DURATION)
+            }
+            print(f"[인증] {username} 세션 생성, 토큰: {token[:8]}...")
+            return token
+
+    def is_session_valid(self, token: str) -> bool:
+        """세션 토큰 유효성 확인"""
+        if not self.totp:
+            return True  # TOTP 설정 안되면 항상 유효
+
+        with self.auth_lock:
+            if token not in self.authenticated_sessions:
+                return False
+            session = self.authenticated_sessions[token]
+            if session["expires"] < datetime.now():
+                del self.authenticated_sessions[token]
+                return False
+            return True
+
+    def get_session_username(self, token: str) -> str:
+        """세션 토큰으로 사용자명 조회"""
+        with self.auth_lock:
+            if token in self.authenticated_sessions:
+                return self.authenticated_sessions[token]["username"]
+            return None
 
     def add_to_queue(self, sender: str, message: str):
         """요청을 대기열에 추가"""
@@ -214,17 +369,51 @@ class ChatBot:
         if event_type == "progress":
             return
 
+        if event_type == "request_usage":
+            # 사용량 조회 요청 처리
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self.send_usage_status(), self.loop
+                )
+            return
+
+        if event_type == "otp_verify":
+            # OTP 인증 요청 처리
+            username = data.get("username", "unknown")
+            otp_code = data.get("otp_code", "")
+            print(f"[인증] {username}님의 OTP 인증 요청: {otp_code}")
+            if self.loop:
+                asyncio.run_coroutine_threadsafe(
+                    self.handle_otp_verify(username, otp_code), self.loop
+                )
+            return
+
         if event_type == "session_reset":
             sender = data.get("username", "unknown")
+            auth_token = data.get("auth_token", "")
+            # 인증된 사용자만 세션 리셋 가능
+            if self.totp and not self.is_session_valid(auth_token):
+                print(f"[경고] 인증되지 않은 세션 리셋 시도: {sender}")
+                return
             self.reset_session()
             print(f"[시스템] {sender}님이 세션을 리셋했습니다. 새 세션 ID: {self.session_id}")
             return
 
         sender = data.get("username", "unknown")
         message = data.get("message", "")
+        auth_token = data.get("auth_token", "")
         print(f"[{sender}]: {message}")
 
         if self.enable_claude and sender != self.username and sender != self.CLAUDE_USERNAME:
+            # OTP 인증 확인
+            if self.totp and not self.is_session_valid(auth_token):
+                print(f"[경고] 인증되지 않은 메시지 무시: {sender}")
+                if self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self.send_auth_required(sender), self.loop
+                    )
+                return
+
             if self.loop:
                 # 모든 요청을 먼저 대기열에 추가
                 queue_length = self.add_to_queue(sender, message)
@@ -237,6 +426,48 @@ class ChatBot:
                     asyncio.run_coroutine_threadsafe(
                         self.process_next_in_queue(), self.loop
                     )
+
+    async def handle_otp_verify(self, username: str, otp_code: str):
+        """OTP 인증 요청 처리"""
+        if self.verify_otp(otp_code):
+            # 인증 성공: 세션 토큰 발급
+            token = self.create_auth_session(username)
+            await self.send_auth_result(username, True, token)
+            print(f"[인증] {username} 인증 성공")
+        else:
+            # 인증 실패
+            await self.send_auth_result(username, False, None)
+            print(f"[인증] {username} 인증 실패")
+
+    async def send_auth_result(self, username: str, success: bool, token: str):
+        """인증 결과를 전송"""
+        if self.channel and self.is_connected:
+            try:
+                await self.channel.send_broadcast(
+                    event="otp_result",
+                    data={
+                        "username": username,
+                        "success": success,
+                        "token": token,
+                        "expires_in": OTP_SESSION_DURATION if success else 0
+                    }
+                )
+            except Exception as e:
+                print(f"[경고] 인증 결과 전송 실패: {e}")
+
+    async def send_auth_required(self, username: str):
+        """인증 필요 알림 전송"""
+        if self.channel and self.is_connected:
+            try:
+                await self.channel.send_broadcast(
+                    event="auth_required",
+                    data={
+                        "username": username,
+                        "message": "OTP 인증이 필요합니다."
+                    }
+                )
+            except Exception as e:
+                print(f"[경고] 인증 필요 알림 전송 실패: {e}")
 
     async def send_progress(self, progress_type: str, data: dict):
         """진행 상황을 채팅방에 전송"""
@@ -264,6 +495,49 @@ class ChatBot:
                 print(f"[DEBUG] 대기열 상태 전송: {status['count']}개")
             except Exception as e:
                 print(f"[경고] 대기열 상태 전송 실패: {e}")
+
+    async def send_usage_status(self):
+        """Claude 사용량 상태를 채팅방에 전송"""
+        if self.channel and self.is_connected:
+            try:
+                # 별도 스레드에서 ccusage 실행 (비동기) - daily와 blocks 병렬 실행
+                loop = asyncio.get_event_loop()
+                usage_task = loop.run_in_executor(None, get_claude_usage)
+                blocks_task = loop.run_in_executor(None, get_claude_blocks)
+
+                usage = await usage_task
+                blocks = await blocks_task
+
+                # 데이터 병합
+                combined_data = {}
+                if usage:
+                    combined_data["today"] = usage.get("today")
+                    combined_data["totals"] = usage.get("totals")
+                    combined_data["date"] = usage.get("date")
+
+                if blocks:
+                    combined_data["block"] = blocks
+
+                if combined_data:
+                    await self.channel.send_broadcast(
+                        event="usage_status",
+                        data=combined_data
+                    )
+
+                    # 디버그 로그
+                    today_cost = combined_data.get("today", {})
+                    if today_cost:
+                        cost_usd = today_cost.get("totalCost", 0)
+                        cost_krw = cost_usd * USD_TO_KRW
+                        print(f"[DEBUG] 사용량 전송: 오늘 ${cost_usd:.2f} (₩{cost_krw:,.0f})")
+
+                    if blocks:
+                        remaining = blocks.get("remainingMinutes", 0)
+                        block_cost = blocks.get("costUSD", 0)
+                        print(f"[DEBUG] 블록 전송: ${block_cost:.2f}, 남은 시간: {remaining}분")
+
+            except Exception as e:
+                print(f"[경고] 사용량 상태 전송 실패: {e}")
 
     async def process_next_in_queue(self):
         """대기열의 다음 요청 처리"""
@@ -540,6 +814,8 @@ class ChatBot:
             # 처리 완료 후 대기열에서 제거하고 상태 업데이트
             self.get_next_from_queue()  # 현재 요청 제거
             await self.send_queue_status()  # 상태 전송 (알림음은 여기서 발생)
+            # 사용량 정보 전송
+            await self.send_usage_status()
             # 대기열에 다음 요청이 있으면 처리
             if self.should_run:
                 await self.process_next_in_queue()
@@ -576,6 +852,16 @@ class ChatBot:
 
                 self.channel.on_broadcast(
                     event="session_reset",
+                    callback=self.on_broadcast
+                )
+
+                self.channel.on_broadcast(
+                    event="request_usage",
+                    callback=self.on_broadcast
+                )
+
+                self.channel.on_broadcast(
+                    event="otp_verify",
                     callback=self.on_broadcast
                 )
 
@@ -665,6 +951,10 @@ async def main():
     print("-" * 40)
     print("Claude가 준비되었습니다.")
     print(f"세션 ID: {bot.session_id}")
+    if TOTP_SECRET_KEY:
+        print(f"OTP 인증: 활성화 (세션 유효시간: {OTP_SESSION_DURATION // 60}분)")
+    else:
+        print("OTP 인증: 비활성화 (TOTP_SECRET_KEY 설정 필요)")
     print("다른 사용자의 메시지에 자동 응답합니다.")
     print("'quit' 입력 시 종료")
     print("-" * 40)
