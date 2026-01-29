@@ -8,6 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **기능이 완성되면 git에 커밋할 것. 오류가 있거나 디버깅 중일 때는 커밋하지 말 것. GitHub에는 push하지 말 것.**
 
+**할 일을 물어보면 `project_docs/todo.md` 파일을 읽고 답할 것. 할 일 추가 요청 시 해당 파일에 추가할 것.**
+
 ## Project Overview
 
 Supabase Realtime 기반 실시간 통신 프로젝트 설정 저장소.
@@ -21,6 +23,7 @@ project_docs/
   python_chat_bot.md     # Python 채팅봇 문서
   html_chat_client.md    # HTML 클라이언트 문서
   claude_code_tools.md   # Claude Code 도구 목록 및 구현 상태
+  todo.md                # 할 일 목록
 supabase/                # Supabase 프로젝트 설정
 chat_bot/               # Python 채팅봇 클라이언트
 chat_client/            # HTML/JS 웹 채팅 클라이언트
@@ -78,6 +81,7 @@ supabase projects api-keys --project-ref bgnhocgfbtnxosrjcxog  # API 키 확인
 - HTML 클라이언트: 헤더 화면 상단 고정 (한 줄 레이아웃, flexbox 다단 배치), 채팅 입력창 화면 하단 고정 (position: fixed)
 - HTML 클라이언트: 자동 스크롤 체크박스 (켜면 항상 최신 메시지로 스크롤, 끄면 스크롤 유지, requestAnimationFrame으로 렌더링 후 스크롤)
 - HTML 클라이언트: 사용자 이름 localStorage 저장 (재방문 시 자동 로그인, 이름변경 버튼 지원)
+- 세션 클리어 기능: /clear 명령어로 Claude 세션 초기화 및 채팅 내역 삭제
 
 ## 안정성 기능
 
@@ -100,6 +104,12 @@ supabase projects api-keys --project-ref bgnhocgfbtnxosrjcxog  # API 키 확인
 - 첫 연결/재연결 구분: 입장 메시지는 첫 연결 시에만, 재연결 시 "다시 연결되었습니다" 표시
 
 ## 버전 정보
+
+### v1.1 (2026-01-30) - 세션 클리어 기능 추가 (태그: v1.1)
+- 세션 클리어 기능: /clear 명령어로 Claude 세션 초기화
+- HTML 클라이언트: 채팅 내역 초기화 및 세션 리셋 알림 표시
+- Python 봇: 새 세션 ID 생성하여 대화 컨텍스트 초기화
+- 자동 스크롤 기능 안정화
 
 ### v1.0 (2026-01-29) - 안정적인 버전 (태그: v1.0)
 - Python 채팅봇 + HTML 클라이언트 실시간 통신 완성

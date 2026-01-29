@@ -168,12 +168,23 @@ class ChatBot:
         self.session_id = str(uuid.uuid4())  # 세션 ID 생성
         self.session_started = False  # 세션 시작 여부
 
+    def reset_session(self):
+        """Claude 세션 리셋 - 새 세션 ID 생성"""
+        self.session_id = str(uuid.uuid4())
+        self.session_started = False
+
     def on_broadcast(self, payload):
         """수신된 메시지 출력 및 Claude 전달"""
         data = payload.get("payload", {})
         event_type = payload.get("event", "message")
 
         if event_type == "progress":
+            return
+
+        if event_type == "session_reset":
+            sender = data.get("username", "unknown")
+            self.reset_session()
+            print(f"[시스템] {sender}님이 세션을 리셋했습니다. 새 세션 ID: {self.session_id}")
             return
 
         sender = data.get("username", "unknown")
@@ -472,6 +483,11 @@ class ChatBot:
 
                 self.channel.on_broadcast(
                     event="message",
+                    callback=self.on_broadcast
+                )
+
+                self.channel.on_broadcast(
+                    event="session_reset",
                     callback=self.on_broadcast
                 )
 

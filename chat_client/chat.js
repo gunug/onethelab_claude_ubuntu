@@ -32,6 +32,7 @@ class ChatClient {
         this.chatContainer = document.getElementById('chatContainer');
         this.statusEl = document.getElementById('status');
         this.changeNameBtn = document.getElementById('changeNameBtn');
+        this.clearSessionBtn = document.getElementById('clearSessionBtn');
         this.autoScrollCheckbox = document.getElementById('autoScrollCheckbox');
 
         // 이벤트 바인딩
@@ -44,6 +45,7 @@ class ChatClient {
             if (e.key === 'Enter') this.sendMessage();
         });
         this.changeNameBtn.addEventListener('click', () => this.changeName());
+        this.clearSessionBtn.addEventListener('click', () => this.clearSession());
 
         // 페이지 가시성 변경 감지 (탭 전환 시 재연결)
         document.addEventListener('visibilitychange', () => {
@@ -90,6 +92,35 @@ class ChatClient {
                 this.updateStatus(`연결됨 - ${this.username}`, true);
                 this.addSystemMessage(`${oldName}님이 ${this.username}(으)로 이름을 변경했습니다.`);
             }
+        }
+    }
+
+    async clearSession() {
+        if (!confirm('새 세션을 시작하시겠습니까?\n채팅 내역이 초기화되고 Claude의 대화 컨텍스트가 리셋됩니다.')) {
+            return;
+        }
+
+        // 채팅 내역 초기화
+        this.chatContainer.innerHTML = '';
+        this.currentProgress = null;
+
+        // Python 봇에 세션 리셋 요청 전송
+        if (this.channel) {
+            try {
+                await this.channel.send({
+                    type: 'broadcast',
+                    event: 'session_reset',
+                    payload: {
+                        username: this.username
+                    }
+                });
+                this.addSystemMessage('새 세션이 시작되었습니다.');
+            } catch (error) {
+                console.error('세션 리셋 요청 실패:', error);
+                this.addSystemMessage('세션 리셋 요청 실패. 채팅 내역만 초기화되었습니다.');
+            }
+        } else {
+            this.addSystemMessage('채팅 내역이 초기화되었습니다. (서버 연결 없음)');
         }
     }
 
