@@ -9,13 +9,13 @@
 
 ## GitHub CLI 설치
 * [x] gh 설치 여부 확인, 없다면 설치
-* [ ] gh auth login
+* [x] gh auth login
 
 ## GitHub 프로젝트 업로드
-* [ ] git init
-* [ ] git add, commit
-* [ ] gh repo create
-* [ ] git push
+* [x] git init
+* [x] git add, commit
+* [x] gh repo create
+* [x] git push
 
 ## Supabase CLI 설치
 * [x] scoop 설치 여부 확인, 없다면 설치
