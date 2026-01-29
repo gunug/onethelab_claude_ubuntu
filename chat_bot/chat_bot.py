@@ -52,12 +52,13 @@ def test_claude_cli():
 
 
 def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Event):
-    """별도 스레드에서 Claude CLI 스트리밍 실행"""
+    """별도 스레드에서 Claude CLI 스트리밍 실행 (stdin 방식)"""
     process = None
     try:
-        cmd = f'claude --output-format stream-json --verbose --dangerously-skip-permissions "{prompt}"'
-        print(f"[DEBUG] run_claude_stream 시작")
+        cmd = 'claude --output-format stream-json --verbose --dangerously-skip-permissions -p -'
+        print(f"[DEBUG] run_claude_stream 시작 (stdin 방식)")
         print(f"[실행 명령] {cmd}")
+        print(f"[stdin 입력] {prompt}")
 
         print(f"[DEBUG] subprocess.Popen 호출 중...")
         process = subprocess.Popen(
@@ -71,6 +72,12 @@ def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Ev
             bufsize=1
         )
         print(f"[DEBUG] 프로세스 생성 완료, PID: {process.pid}")
+
+        # stdin으로 프롬프트 전달
+        print(f"[DEBUG] stdin 쓰기 중...")
+        process.stdin.write(prompt)
+        process.stdin.close()
+        print(f"[DEBUG] stdin 닫힘")
 
         # stderr 읽기 스레드 (readline 방식)
         def read_stderr():
