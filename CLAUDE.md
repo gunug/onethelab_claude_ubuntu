@@ -60,11 +60,13 @@ supabase projects api-keys --project-ref bgnhocgfbtnxosrjcxog  # API 키 확인
   - Edit 도구 사용 시 변경 내용 (old_string, new_string) 출력
   - Write 도구 사용 시 파일 내용 표시 (최대 500자, 접기/펼치기 지원)
   - Bash 도구 사용 시 실행 명령어 표시 (최대 100자, 별도 스타일 블록)
+  - TodoWrite 도구 사용 시 할 일 목록 표시 (상태별 아이콘, 접기/펼치기 지원)
 - 디버깅 로그: [DEBUG] 태그로 Python 콘솔에만 출력 (HTML 미전송)
 - 비용 표시: USD와 원화(KRW) 동시 표시 (환율 상수: 1430원/USD, 2026년 1월 기준)
 - HTML 클라이언트: 진행 상황 UI 표시 (프로그레스 바, 단계별 상태, 통계)
 - HTML 클라이언트: Edit diff UI (변경 전/후 비교, 접기/펼치기 지원)
 - HTML 클라이언트: Write content UI (파일 내용 표시, 접기/펼치기 지원)
+- HTML 클라이언트: TodoWrite UI (할 일 목록 표시, 상태별 아이콘: ○ 대기/◐ 진행중/✓ 완료, 접기/펼치기 지원)
 - HTML 클라이언트: 모든 메시지에 마크다운 렌더링 적용 (marked.js 사용, Claude뿐 아니라 모든 발신자)
 - HTML 클라이언트: 헤더 화면 상단 고정 (한 줄 레이아웃, flexbox 다단 배치), 채팅 입력창 화면 하단 고정 (position: fixed)
 - HTML 클라이언트: 자동 스크롤 체크박스 (켜면 항상 최신 메시지로 스크롤, 끄면 스크롤 유지, requestAnimationFrame으로 렌더링 후 스크롤)

@@ -338,6 +338,21 @@ class ChatBot:
                                             print(f"  - 내용: {content[:100]}..." if len(content) > 100 else f"  - 내용: {content}")
                                     elif tool_name == "Grep":
                                         detail = tool_input.get("pattern", "") or ""
+                                    elif tool_name == "TodoWrite":
+                                        todos = tool_input.get("todos", [])
+                                        if todos and isinstance(todos, list):
+                                            # TodoWrite 정보를 edit_info로 전송
+                                            edit_info = {
+                                                "type": "todo",
+                                                "todos": todos
+                                            }
+                                            detail = f"{len(todos)}개 항목"
+                                            print(f"[Claude] [{current_turn}] TodoWrite:")
+                                            for todo in todos:
+                                                status = todo.get("status", "pending")
+                                                content = todo.get("content", "")
+                                                status_icon = "⏳" if status == "pending" else "🔄" if status == "in_progress" else "✅"
+                                                print(f"  {status_icon} {content}")
 
                                     print(f"[Claude] [{current_turn}] {tool_name} 실행 중... {detail}")
                                     progress_data = {

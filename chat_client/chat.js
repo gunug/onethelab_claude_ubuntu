@@ -507,6 +507,34 @@ class ChatClient {
                     </div>
                 </div>
             `;
+        } else if (data.tool === 'TodoWrite' && data.edit_info && data.edit_info.type === 'todo') {
+            // TodoWrite 도구: 할 일 목록 표시
+            const todoId = `todo-list-${data.turn}`;
+            const todos = data.edit_info.todos || [];
+            let todoItemsHtml = '';
+            for (const todo of todos) {
+                const status = todo.status || 'pending';
+                const content = todo.content || '';
+                const statusIcon = status === 'pending' ? '○' : status === 'in_progress' ? '◐' : '✓';
+                const contentClass = status === 'completed' ? 'todo-content completed' : 'todo-content';
+                todoItemsHtml += `
+                    <div class="todo-item">
+                        <div class="todo-status ${status}">${statusIcon}</div>
+                        <span class="${contentClass}">${this.escapeHtml(content)}</span>
+                    </div>
+                `;
+            }
+            editDiffHtml = `
+                <div class="todo-list" id="${todoId}">
+                    <div class="todo-list-header">
+                        <span>📋 할 일 목록 (${todos.length}개)</span>
+                        <span class="todo-list-toggle" onclick="toggleTodoList('${todoId}')">접기</span>
+                    </div>
+                    <div class="todo-list-body">
+                        ${todoItemsHtml}
+                    </div>
+                </div>
+            `;
         }
 
         stepEl.innerHTML = `
@@ -728,6 +756,23 @@ function toggleWriteContent(writeId) {
 
     const content = writeEl.querySelector('.write-content-body');
     const toggle = writeEl.querySelector('.write-content-toggle');
+
+    if (content.classList.contains('collapsed')) {
+        content.classList.remove('collapsed');
+        toggle.textContent = '접기';
+    } else {
+        content.classList.add('collapsed');
+        toggle.textContent = '펼치기';
+    }
+}
+
+// TodoWrite 목록 접기/펼치기
+function toggleTodoList(todoId) {
+    const todoEl = document.getElementById(todoId);
+    if (!todoEl) return;
+
+    const content = todoEl.querySelector('.todo-list-body');
+    const toggle = todoEl.querySelector('.todo-list-toggle');
 
     if (content.classList.contains('collapsed')) {
         content.classList.remove('collapsed');
