@@ -72,14 +72,18 @@ def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Ev
         )
         print(f"[DEBUG] 프로세스 생성 완료, PID: {process.pid}")
 
-        # stderr 읽기 스레드
+        # stderr 읽기 스레드 (readline 방식)
         def read_stderr():
-            print(f"[DEBUG] stderr 스레드 시작")
+            print(f"[DEBUG] stderr 스레드 시작 (readline 방식)")
             line_count = 0
             try:
-                for line in process.stderr:
+                while True:
                     if stop_event.is_set():
                         print(f"[DEBUG] stderr: stop_event 감지, 종료")
+                        break
+                    line = process.stderr.readline()
+                    if not line:
+                        print(f"[DEBUG] stderr: EOF 감지")
                         break
                     line = line.strip()
                     if line:
@@ -94,13 +98,17 @@ def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Ev
         stderr_thread.start()
         print(f"[DEBUG] stderr 스레드 시작됨")
 
-        # stdout 읽기
-        print(f"[DEBUG] stdout 읽기 시작")
+        # stdout 읽기 (readline 방식)
+        print(f"[DEBUG] stdout 읽기 시작 (readline 방식)")
         line_count = 0
         try:
-            for line in process.stdout:
+            while True:
                 if stop_event.is_set():
                     print(f"[DEBUG] stdout: stop_event 감지, 종료")
+                    break
+                line = process.stdout.readline()
+                if not line:
+                    print(f"[DEBUG] stdout: EOF 감지")
                     break
                 line = line.strip()
                 if line:
