@@ -486,7 +486,21 @@ class ChatClient {
             // 기존 연결 정리
             await this.cleanup();
 
-            this.channel = this.supabase.channel(CHANNEL_NAME);
+            // Private Channel을 위해 Realtime에 인증 토큰 설정
+            const { data: { session } } = await this.supabase.auth.getSession();
+            if (session?.access_token) {
+                console.log('Realtime 인증 토큰 설정');
+                this.supabase.realtime.setAuth(session.access_token);
+            } else {
+                console.error('세션 토큰 없음');
+                this.addSystemMessage('인증 토큰을 가져올 수 없습니다. 다시 로그인해주세요.');
+                this.isConnecting = false;
+                return;
+            }
+
+            this.channel = this.supabase.channel(CHANNEL_NAME, {
+                config: { private: true }
+            });
 
             // 채널 이벤트 설정
             this.channel
