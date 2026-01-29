@@ -51,137 +51,93 @@ def test_claude_cli():
         return False
 
 
-class ClaudeProcess:
-    """Claude CLI 프로세스 관리 (채팅 모드)"""
-
-    def __init__(self):
-        self.process = None
-        self.output_queue = Queue()
-        self.stderr_thread = None
-        self.stdout_thread = None
-        self.stop_event = threading.Event()
-        self.is_running = False
-        self.waiting_response = False
-
-    def start(self):
-        """Claude 프로세스 시작"""
-        if self.process and self.process.poll() is None:
-            print("[DEBUG] Claude 프로세스 이미 실행 중")
-            return True
-
-        cmd = 'claude --output-format stream-json --verbose --dangerously-skip-permissions'
-        print(f"[DEBUG] Claude 프로세스 시작 (채팅 모드)")
+def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Event):
+    """별도 스레드에서 Claude CLI 스트리밍 실행 (프린트 모드, stdin 방식)"""
+    process = None
+    try:
+        cmd = 'claude --output-format stream-json --verbose --dangerously-skip-permissions -p -'
+        print(f"[DEBUG] run_claude_stream 시작")
         print(f"[실행 명령] {cmd}")
+        print(f"[stdin 입력] {prompt}")
 
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE,
+            shell=True,
+            text=True,
+            encoding="utf-8",
+            bufsize=1
+        )
+        print(f"[DEBUG] 프로세스 생성 완료, PID: {process.pid}")
+
+        # stdin으로 프롬프트 전달
+        print(f"[DEBUG] stdin 쓰기 중...")
+        process.stdin.write(prompt)
+        process.stdin.close()
+        print(f"[DEBUG] stdin 닫힘")
+
+        # stderr 읽기 스레드
+        def read_stderr():
+            print(f"[DEBUG] stderr 스레드 시작")
+            try:
+                while not stop_event.is_set():
+                    line = process.stderr.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    if line:
+                        print(f"[DEBUG] stderr: {line[:100]}")
+                        output_queue.put(("stderr", line))
+            except Exception as e:
+                print(f"[DEBUG] stderr 예외: {e}")
+            print(f"[DEBUG] stderr 스레드 종료")
+
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stderr_thread.start()
+
+        # stdout 읽기
+        print(f"[DEBUG] stdout 읽기 시작")
+        line_count = 0
         try:
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                shell=True,
-                text=True,
-                encoding="utf-8",
-                bufsize=1
-            )
-            print(f"[DEBUG] 프로세스 생성 완료, PID: {self.process.pid}")
-
-            self.stop_event.clear()
-            self.is_running = True
-
-            # stderr 읽기 스레드
-            self.stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
-            self.stderr_thread.start()
-
-            # stdout 읽기 스레드
-            self.stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
-            self.stdout_thread.start()
-
-            return True
-
-        except Exception as e:
-            print(f"[DEBUG] 프로세스 시작 실패: {e}")
-            return False
-
-    def _read_stderr(self):
-        """stderr 읽기 스레드"""
-        print(f"[DEBUG] stderr 스레드 시작")
-        try:
-            while not self.stop_event.is_set() and self.process:
-                line = self.process.stderr.readline()
-                if not line:
-                    break
-                line = line.strip()
-                if line:
-                    print(f"[DEBUG] stderr: {line[:100]}")
-                    self.output_queue.put(("stderr", line))
-        except Exception as e:
-            print(f"[DEBUG] stderr 예외: {e}")
-        print(f"[DEBUG] stderr 스레드 종료")
-
-    def _read_stdout(self):
-        """stdout 읽기 스레드"""
-        print(f"[DEBUG] stdout 스레드 시작")
-        try:
-            while not self.stop_event.is_set() and self.process:
-                line = self.process.stdout.readline()
+            while not stop_event.is_set():
+                line = process.stdout.readline()
                 if not line:
                     print(f"[DEBUG] stdout: EOF")
-                    self.output_queue.put(("eof", None))
                     break
                 line = line.strip()
                 if line:
-                    print(f"[DEBUG] stdout: {line[:100]}...")
-                    self.output_queue.put(("line", line))
+                    line_count += 1
+                    print(f"[DEBUG] stdout [{line_count}]: {line[:100]}...")
+                    output_queue.put(("line", line))
         except Exception as e:
             print(f"[DEBUG] stdout 예외: {e}")
-            self.output_queue.put(("error", str(e)))
-        print(f"[DEBUG] stdout 스레드 종료")
-        self.is_running = False
+            output_queue.put(("error", f"stdout 읽기 오류: {e}"))
+        print(f"[DEBUG] stdout 읽기 완료, 총 {line_count}줄")
 
-    def send_message(self, message: str):
-        """메시지 전송"""
-        if not self.process or self.process.poll() is not None:
-            print(f"[DEBUG] 프로세스가 없어서 재시작")
-            if not self.start():
-                return False
-
+        # 프로세스 종료 대기
+        print(f"[DEBUG] 프로세스 종료 대기 중...")
         try:
-            print(f"[DEBUG] stdin 전송: {message[:50]}...")
-            self.process.stdin.write(message + "\n")
-            self.process.stdin.flush()
-            self.waiting_response = True
-            return True
-        except Exception as e:
-            print(f"[DEBUG] stdin 전송 실패: {e}")
-            return False
+            process.wait(timeout=10)
+            print(f"[DEBUG] 프로세스 종료, returncode: {process.returncode}")
+        except subprocess.TimeoutExpired:
+            print(f"[DEBUG] 타임아웃, 강제 종료")
+            process.kill()
+            process.wait()
 
-    def get_output(self, timeout=1):
-        """출력 가져오기"""
-        try:
-            return self.output_queue.get(timeout=timeout)
-        except Empty:
-            return None
+        output_queue.put(("done", process.returncode))
 
-    def stop(self):
-        """프로세스 종료"""
-        print(f"[DEBUG] Claude 프로세스 종료 중...")
-        self.stop_event.set()
-        self.is_running = False
-
-        if self.process and self.process.poll() is None:
+    except Exception as e:
+        print(f"[DEBUG] run_claude_stream 예외: {e}")
+        output_queue.put(("error", str(e)))
+    finally:
+        if process and process.poll() is None:
             try:
-                self.process.stdin.close()
-                self.process.terminate()
-                self.process.wait(timeout=5)
-            except Exception as e:
-                print(f"[DEBUG] 종료 실패, 강제 종료: {e}")
-                try:
-                    self.process.kill()
-                except:
-                    pass
-
-        print(f"[DEBUG] Claude 프로세스 종료 완료")
+                process.kill()
+                process.wait(timeout=5)
+            except:
+                pass
 
 
 class ChatBot:
@@ -197,7 +153,7 @@ class ChatBot:
         self.should_run = True
         self.reconnect_attempts = 0
         self.claude_processing = False
-        self.claude_process = ClaudeProcess() if enable_claude else None
+        self.current_stop_event = None
 
     def on_broadcast(self, payload):
         """수신된 메시지 출력 및 Claude 전달"""
@@ -232,42 +188,41 @@ class ChatBot:
                 print(f"[경고] 진행 상황 전송 실패: {e}")
 
     async def ask_claude(self, message: str, sender: str):
-        """Claude CLI에 메시지 전달하고 응답 받기 (채팅 모드)"""
+        """Claude CLI에 메시지 전달하고 응답 받기 (프린트 모드)"""
         print(f"[DEBUG] ask_claude 호출: sender={sender}, message={message[:50]}...")
 
         if self.claude_processing:
             print("[Claude] 이미 처리 중인 요청이 있습니다.")
             return
 
-        if not self.claude_process:
-            print("[Claude] Claude 프로세스가 없습니다.")
-            return
-
         self.claude_processing = True
+        self.current_stop_event = threading.Event()
 
         try:
             await self.send_progress("start", {"message": "Claude 처리 시작"})
             print(f"[Claude] 처리 시작...")
 
             prompt = f"[{sender}]: {message}"
+            output_queue = Queue()
 
-            # 메시지 전송
-            if not self.claude_process.send_message(prompt):
-                print("[Claude 오류] 메시지 전송 실패")
-                await self.send_progress("error", {"message": "메시지 전송 실패"})
-                return
+            # 별도 스레드에서 Claude 실행
+            thread = threading.Thread(
+                target=run_claude_stream,
+                args=(prompt, output_queue, self.current_stop_event)
+            )
+            thread.start()
 
             final_result = ""
             current_turn = 0
             start_time = asyncio.get_event_loop().time()
             queue_poll_count = 0
-            response_complete = False
 
-            while self.should_run and not response_complete:
+            while self.should_run:
                 # 타임아웃 체크
                 elapsed = asyncio.get_event_loop().time() - start_time
                 if elapsed > CLAUDE_TIMEOUT:
                     print(f"[Claude] 타임아웃 ({CLAUDE_TIMEOUT}초)")
+                    self.current_stop_event.set()
                     await self.send_progress("error", {"message": f"타임아웃 ({CLAUDE_TIMEOUT}초)"})
                     break
 
@@ -279,21 +234,18 @@ class ChatBot:
 
                     item = await asyncio.wait_for(
                         asyncio.get_event_loop().run_in_executor(
-                            None, lambda: self.claude_process.get_output(timeout=1)
+                            None, lambda: output_queue.get(timeout=1)
                         ),
                         timeout=2
                     )
-                except asyncio.TimeoutError:
-                    continue
-
-                if item is None:
+                except (asyncio.TimeoutError, Empty):
                     continue
 
                 msg_type, content = item
-                print(f"[DEBUG] 큐에서 수신: type={msg_type}, content={str(content)[:80] if content else 'None'}...")
+                print(f"[DEBUG] 큐에서 수신: type={msg_type}, content={str(content)[:80]}...")
 
-                if msg_type == "eof":
-                    print(f"[DEBUG] EOF 수신, 프로세스 종료됨")
+                if msg_type == "done":
+                    print(f"[DEBUG] done 수신")
                     break
                 elif msg_type == "error":
                     print(f"[Claude 오류]: {content}")
@@ -420,13 +372,14 @@ class ChatBot:
                                 "turns": total_turns
                             })
 
-                            # 응답 완료
-                            response_complete = True
-                            print(f"[DEBUG] 응답 완료")
-
                     except json.JSONDecodeError as e:
                         print(f"[DEBUG] JSON 파싱 실패: {e}")
                         continue
+
+            # 스레드 종료 대기
+            thread.join(timeout=10)
+            if thread.is_alive():
+                print("[경고] Claude 스레드가 아직 실행 중")
 
             if final_result:
                 print(f"[DEBUG] 최종 결과 있음, 길이: {len(final_result)}")
@@ -517,9 +470,9 @@ class ChatBot:
         """연결 해제"""
         self.should_run = False
 
-        # Claude 프로세스 종료
-        if self.claude_process:
-            self.claude_process.stop()
+        # 현재 실행 중인 Claude 스레드 중지
+        if self.current_stop_event:
+            self.current_stop_event.set()
 
         if self.channel and self.supabase:
             try:
