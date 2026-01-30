@@ -122,6 +122,32 @@ python chat_bot/chat_bot.py
 - **AI**: Claude Code CLI (Anthropic)
 - **통신**: WebSocket (Supabase Broadcast)
 
+## 버전 히스토리
+
+### v3.0 (2026-01-30) - 안정성 강화
+- Python 봇: 토큰 자동 갱신 (45분마다), Heartbeat 모니터링 (30초마다)
+- Python 봇: 절전 모드 복귀 시 자동 재연결
+- HTML 클라이언트: 토큰 갱신 시 Realtime 자동 반영
+
+### v2.2 (2026-01-30) - Railway 배포
+- HTML 클라이언트 Railway 배포
+- 배포 URL: https://onethelabsetting-production.up.railway.app
+- Supabase Realtime Private Channel + RLS 적용
+
+### v2.0 (2026-01-30) - Supabase Auth + MFA
+- Supabase Auth 이메일/비밀번호 로그인
+- MFA 지원 (TOTP 2단계 인증)
+- 토큰 보안 강화 (Broadcast 노출 방지)
+
+### v1.1 (2026-01-30) - 세션 클리어
+- `/clear` 명령어로 Claude 세션 초기화
+- 자동 스크롤 기능
+
+### v1.0 (2026-01-29) - 초기 릴리즈
+- Python 채팅봇 + HTML 클라이언트 실시간 통신
+- Claude CLI 프린트 모드 (`-p -` stdin 방식)
+- 진행 상황 UI, Edit diff 표시, 마크다운 렌더링
+
 ## 라이선스
 
 개인 학습 및 실험 목적으로 제작되었습니다.
