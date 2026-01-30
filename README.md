@@ -46,7 +46,7 @@
 │   ├── install.bat         # 의존성 설치 스크립트
 │   ├── config.bat          # ngrok 설정 스크립트
 │   ├── run.bat             # 로컬 실행 스크립트
-│   ├── run_ngrok.bat       # ngrok 외부 접속 스크립트
+│   ├── run_ngrok.bat       # ngrok 외부 접속 스크립트 (config.bat으로 생성, .gitignore)
 │   └── run_server_loop.bat # 서버 재시작 루프 (내부용)
 ├── project_docs/           # 프로젝트 문서
 │   ├── chat_socket.md      # Chat Socket 문서
@@ -117,10 +117,10 @@ pip install aiohttp
 npm install -g @anthropic-ai/claude-code
 ```
 
-### 3. ngrok 설정 (외부 접속 시)
+### 3. ngrok 설정 (외부 접속 시 필수)
 
 ```bash
-# config.bat 실행하여 ngrok 설정
+# config.bat 실행하여 ngrok 설정 및 run_ngrok.bat 생성
 config.bat
 ```
 
@@ -128,6 +128,8 @@ config.bat
 - ngrok Auth Token
 - ngrok 도메인
 - OAuth 허용 계정 (이메일)
+
+**중요:** `config.bat` 실행 시 `run_ngrok.bat` 파일이 자동 생성됩니다. 이 파일은 개인 설정(도메인, 이메일)이 포함되어 있어 `.gitignore`에 등록되어 있습니다. 외부 접속을 위해서는 반드시 `config.bat`을 먼저 실행해야 합니다.
 
 ### 4. 실행
 
