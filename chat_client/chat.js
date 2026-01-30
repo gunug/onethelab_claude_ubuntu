@@ -110,6 +110,22 @@ class ChatClient {
         // 사용량 정보 패널 초기화
         this.initUsageInfoPanel();
 
+        // Auth 상태 변경 리스너 (토큰 갱신 시 Realtime에 반영)
+        this.supabase.auth.onAuthStateChange((event, session) => {
+            console.log('Auth 상태 변경:', event);
+
+            if (event === 'TOKEN_REFRESHED' && session?.access_token) {
+                console.log('토큰 갱신됨, Realtime에 반영');
+                this.supabase.realtime.setAuth(session.access_token);
+            } else if (event === 'SIGNED_OUT') {
+                // 로그아웃 또는 세션 만료 시 로그인 화면으로 이동
+                console.log('세션 종료됨, 로그인 화면으로 이동');
+                this.cleanup();
+                this.showLoginScreen();
+                this.showLoginError('세션이 만료되었습니다. 다시 로그인해주세요.');
+            }
+        });
+
         // 기존 세션 확인
         this.checkExistingSession();
     }
@@ -527,7 +543,6 @@ class ChatClient {
 
                     if (status === 'SUBSCRIBED') {
                         console.log('채널 연결 성공');
-                        this.reconnectAttempts = 0;
                         this.updateStatus(`연결됨 - ${this.username}`, true);
 
                         // 중복 SUBSCRIBED 이벤트 방지

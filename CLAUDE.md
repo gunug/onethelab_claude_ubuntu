@@ -145,8 +145,16 @@ HTML 클라이언트 (Railway 배포) ←→ Supabase Realtime ←→ Python 봇
 - 중복 SUBSCRIBED 방지: `subscribedHandled` 플래그로 중복 이벤트 무시
 - Supabase Auth: 이메일/비밀번호 로그인, MFA 인증, TOTP 등록
 - 로그아웃: 페이지 새로고침으로 모든 상태 완전 초기화
+- 토큰 자동 갱신: `onAuthStateChange`로 토큰 갱신 시 Realtime에 자동 반영
+- 세션 만료 처리: refresh_token 만료 시 로그인 화면으로 자동 이동
 
 ## 버전 정보
+
+### v2.4 (2026-01-30) - 토큰 갱신 버그 수정
+- **토큰 자동 갱신 반영**: `onAuthStateChange` 리스너로 토큰 갱신 시 Realtime에 자동 반영
+- **재연결 루프 버그 수정**: Supabase 내부 재연결 시 만료된 토큰 사용 문제 해결
+- **세션 만료 처리**: `SIGNED_OUT` 이벤트 시 로그인 화면으로 자동 이동 및 에러 메시지 표시
+- **불필요한 코드 제거**: 사용되지 않는 `reconnectAttempts` 변수 제거
 
 ### v2.3 (2026-01-30) - 메시지 서버 동기화
 - **Broadcast self 설정**: `broadcast: { self: true }`로 자기 메시지도 서버에서 수신
