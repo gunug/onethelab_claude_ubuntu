@@ -31,6 +31,8 @@ USD_TO_KRW = 1430
 RECONNECT_DELAY = 5  # 재연결 대기 시간 (초)
 MAX_RECONNECT_ATTEMPTS = 10  # 최대 재연결 시도 횟수
 CLAUDE_TIMEOUT = 300  # Claude CLI 타임아웃 (초)
+TOKEN_REFRESH_INTERVAL = 45 * 60  # 토큰 갱신 주기 (45분, access_token 만료 전)
+HEARTBEAT_INTERVAL = 30  # heartbeat 주기 (30초)
 
 
 def get_claude_usage():
@@ -271,6 +273,12 @@ class ChatBot:
         # 요청 큐 관련
         self.request_queue = []  # 대기 중인 요청 목록 [{"sender": str, "message": str}, ...]
         self.queue_lock = threading.Lock()  # 큐 접근 동기화
+        # 토큰 갱신 및 연결 모니터링 관련
+        self.last_token_refresh = None  # 마지막 토큰 갱신 시간
+        self.last_heartbeat = None  # 마지막 heartbeat 시간
+        self.token_refresh_task = None  # 토큰 갱신 태스크
+        self.heartbeat_task = None  # heartbeat 태스크
+        self.channel_name = None  # 채널 이름 저장 (재연결용)
 
     def reset_session(self):
         """Claude 세션 리셋 - 새 세션 ID 생성"""
@@ -716,8 +724,146 @@ class ChatBot:
             except Exception as e:
                 print(f"[경고] Claude 응답 전송 실패: {e}")
 
+    async def refresh_token(self):
+        """토큰 갱신 및 Realtime에 반영"""
+        if not self.supabase:
+            return False
+
+        try:
+            # 세션 갱신 시도
+            response = await self.supabase.auth.refresh_session()
+            if response.session:
+                self.last_token_refresh = datetime.now()
+                print(f"[토큰] 갱신 성공: {self.last_token_refresh.strftime('%H:%M:%S')}")
+
+                # Realtime에 새 토큰 반영 (재연결로 처리)
+                # supabase-py의 realtime은 자동으로 세션 토큰을 사용함
+                return True
+            else:
+                print("[토큰] 갱신 실패: 세션 없음")
+                return False
+        except Exception as e:
+            print(f"[토큰] 갱신 오류: {e}")
+            return False
+
+    async def token_refresh_loop(self):
+        """토큰 갱신 루프 (백그라운드 태스크)"""
+        print(f"[토큰] 갱신 루프 시작 (주기: {TOKEN_REFRESH_INTERVAL}초)")
+        while self.should_run:
+            try:
+                await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
+                if self.should_run and self.is_connected:
+                    success = await self.refresh_token()
+                    if not success:
+                        print("[토큰] 갱신 실패, 재연결 시도...")
+                        await self.reconnect()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[토큰] 갱신 루프 오류: {e}")
+
+    async def heartbeat_loop(self):
+        """연결 상태 확인 루프 (백그라운드 태스크)"""
+        print(f"[Heartbeat] 루프 시작 (주기: {HEARTBEAT_INTERVAL}초)")
+        consecutive_failures = 0
+        max_failures = 3  # 연속 실패 허용 횟수
+
+        while self.should_run:
+            try:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                if not self.should_run:
+                    break
+
+                # 연결 상태 확인 - 간단한 브로드캐스트로 테스트
+                if self.channel and self.is_connected:
+                    try:
+                        # heartbeat 메시지 전송 (다른 클라이언트에 영향 없도록 별도 이벤트)
+                        await self.channel.send_broadcast(
+                            event="heartbeat",
+                            data={"timestamp": datetime.now().isoformat()}
+                        )
+                        self.last_heartbeat = datetime.now()
+                        consecutive_failures = 0
+                    except Exception as e:
+                        consecutive_failures += 1
+                        print(f"[Heartbeat] 실패 ({consecutive_failures}/{max_failures}): {e}")
+
+                        if consecutive_failures >= max_failures:
+                            print("[Heartbeat] 연속 실패, 재연결 시도...")
+                            self.is_connected = False
+                            await self.reconnect()
+                            consecutive_failures = 0
+                else:
+                    # 연결되지 않은 상태면 재연결 시도
+                    if self.should_run:
+                        print("[Heartbeat] 연결 끊김 감지, 재연결 시도...")
+                        await self.reconnect()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[Heartbeat] 루프 오류: {e}")
+
+    async def reconnect(self):
+        """연결 끊김 시 재연결"""
+        if not self.should_run:
+            return False
+
+        print("[재연결] 시작...")
+        self.is_connected = False
+
+        # 기존 채널 정리
+        if self.channel:
+            try:
+                await self.channel.unsubscribe()
+            except Exception:
+                pass
+            self.channel = None
+
+        # 재인증 (토큰 만료 대비)
+        if self.supabase and BOT_EMAIL and BOT_PASSWORD:
+            try:
+                print("[재연결] 재인증 시도...")
+                # 먼저 토큰 갱신 시도
+                refresh_result = await self.supabase.auth.refresh_session()
+                if not refresh_result.session:
+                    # 토큰 갱신 실패 시 재로그인
+                    print("[재연결] 토큰 갱신 실패, 재로그인...")
+                    auth_response = await self.supabase.auth.sign_in_with_password({
+                        "email": BOT_EMAIL,
+                        "password": BOT_PASSWORD
+                    })
+                    if auth_response.user:
+                        print(f"[재연결] 재로그인 성공: {auth_response.user.email}")
+                    else:
+                        print("[재연결] 재로그인 실패")
+                        return False
+                else:
+                    print("[재연결] 토큰 갱신 성공")
+            except Exception as e:
+                print(f"[재연결] 인증 오류: {e}")
+                # 재로그인 시도
+                try:
+                    auth_response = await self.supabase.auth.sign_in_with_password({
+                        "email": BOT_EMAIL,
+                        "password": BOT_PASSWORD
+                    })
+                    if auth_response.user:
+                        print(f"[재연결] 재로그인 성공: {auth_response.user.email}")
+                    else:
+                        print("[재연결] 재로그인 실패")
+                        return False
+                except Exception as e2:
+                    print(f"[재연결] 재로그인 오류: {e2}")
+                    return False
+
+        # 채널 재연결
+        channel_name = self.channel_name or "chat-room"
+        return await self.connect(channel_name)
+
     async def connect(self, channel_name: str = "chat-room"):
         """채널에 연결 (재연결 로직 포함)"""
+        self.channel_name = channel_name  # 재연결용 저장
         while self.should_run and self.reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
             try:
                 self.loop = asyncio.get_event_loop()
@@ -764,6 +910,7 @@ class ChatBot:
                 await self.channel.subscribe()
                 self.is_connected = True
                 self.reconnect_attempts = 0  # 연결 성공 시 카운터 리셋
+                self.last_token_refresh = datetime.now()  # 토큰 갱신 시간 초기화
 
                 mode = " (Claude 모드)" if self.enable_claude else ""
                 print(f"'{channel_name}' 채널에 연결되었습니다.{mode}")
@@ -802,6 +949,23 @@ class ChatBot:
     async def disconnect(self):
         """연결 해제"""
         self.should_run = False
+
+        # 백그라운드 태스크 정리
+        if self.token_refresh_task:
+            self.token_refresh_task.cancel()
+            try:
+                await self.token_refresh_task
+            except asyncio.CancelledError:
+                pass
+            self.token_refresh_task = None
+
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self.heartbeat_task = None
 
         # 현재 실행 중인 Claude 스레드 중지
         if self.current_stop_event:
@@ -844,10 +1008,16 @@ async def main():
         print("연결 실패. 종료합니다.")
         return
 
+    # 백그라운드 태스크 시작 (토큰 갱신, heartbeat)
+    bot.token_refresh_task = asyncio.create_task(bot.token_refresh_loop())
+    bot.heartbeat_task = asyncio.create_task(bot.heartbeat_loop())
+
     print("-" * 40)
     print("Claude가 준비되었습니다.")
     print(f"세션 ID: {bot.session_id}")
     print("인증: Supabase Auth + MFA (채널 접속 시 인증 완료)")
+    print("토큰 자동 갱신: 45분마다")
+    print("연결 모니터링: 30초마다 heartbeat")
     print("다른 사용자의 메시지에 자동 응답합니다.")
     print("'quit' 입력 시 종료")
     print("-" * 40)
