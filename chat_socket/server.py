@@ -635,7 +635,7 @@ async def handle_icon(request):
 
 async def handle_websocket(request):
     """WebSocket /ws - 채팅 처리"""
-    ws = web.WebSocketResponse()
+    ws = web.WebSocketResponse(heartbeat=30)  # 30초마다 ping/pong으로 연결 유지
     await ws.prepare(request)
 
     connected_clients.add(ws)

@@ -1355,6 +1355,10 @@
                 <input type="checkbox" id="soundCheck" checked>
                 <label for="soundCheck">🔔</label>
             </div>
+            <div class="sound-container">
+                <input type="checkbox" id="wakeLockCheck" checked>
+                <label for="wakeLockCheck" title="화면 자동 잠금 방지">☀️</label>
+            </div>
             <div class="auto-scroll-container">
                 <input type="checkbox" id="autoScrollCheck" checked>
                 <label for="autoScrollCheck">자동 스크롤</label>
@@ -1473,6 +1477,8 @@
         let queueCollapsed = true;  // 큐 접힘 상태
         let previousQueueCount = 0;  // 이전 큐 개수 (완료 알림용)
         let soundEnabled = localStorage.getItem('queue_sound') !== 'false';  // 소리 알림 설정
+        let wakeLock = null;  // 화면 자동 잠금 방지
+        let wakeLockEnabled = localStorage.getItem('wake_lock') !== 'false';  // 화면 잠금 방지 설정
 
         // DOM 요소
         const chatContainer = document.getElementById('chatContainer');
@@ -1490,6 +1496,7 @@
         const queueBody = document.getElementById('queueBody');
         const queueToggle = document.getElementById('queueToggle');
         const soundCheck = document.getElementById('soundCheck');
+        const wakeLockCheck = document.getElementById('wakeLockCheck');
 
         // 자동 스크롤
         autoScrollCheck.addEventListener('change', (e) => {
@@ -1506,6 +1513,18 @@
             localStorage.setItem('queue_sound', soundEnabled ? 'true' : 'false');
         });
 
+        // 화면 잠금 방지 설정
+        wakeLockCheck.checked = wakeLockEnabled;
+        wakeLockCheck.addEventListener('change', async (e) => {
+            wakeLockEnabled = e.target.checked;
+            localStorage.setItem('wake_lock', wakeLockEnabled ? 'true' : 'false');
+            if (wakeLockEnabled) {
+                await requestWakeLock();
+            } else {
+                await releaseWakeLock();
+            }
+        });
+
         // 큐 접기/펼치기
         queueHeader.addEventListener('click', () => {
             queueCollapsed = !queueCollapsed;
@@ -1515,6 +1534,39 @@
             } else {
                 queueBody.classList.remove('collapsed');
                 queueToggle.textContent = '접기';
+            }
+        });
+
+        // Wake Lock API - 화면 자동 잠금 방지
+        async function requestWakeLock() {
+            if (!wakeLockEnabled) return;
+            if (!('wakeLock' in navigator)) {
+                console.log('[Wake Lock] 이 브라우저에서 지원되지 않음');
+                return;
+            }
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('[Wake Lock] 화면 잠금 방지 활성화');
+                wakeLock.addEventListener('release', () => {
+                    console.log('[Wake Lock] 해제됨');
+                });
+            } catch (e) {
+                console.warn('[Wake Lock] 요청 실패:', e);
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (wakeLock) {
+                await wakeLock.release();
+                wakeLock = null;
+                console.log('[Wake Lock] 수동 해제');
+            }
+        }
+
+        // 페이지 가시성 변경 시 Wake Lock 재요청
+        document.addEventListener('visibilitychange', async () => {
+            if (document.visibilityState === 'visible' && wakeLockEnabled) {
+                await requestWakeLock();
             }
         });
 
@@ -2308,6 +2360,7 @@
         updateServerUrlDisplay();
         initUsageInfoPanel();
         lockScreenOrientation();
+        requestWakeLock();  // 화면 자동 잠금 방지
         connect();
 
         // Service Worker 등록 (PWA)
