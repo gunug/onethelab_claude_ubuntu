@@ -40,6 +40,9 @@ project_docs/
   supabase_realtime.md   # Supabase Realtime 보안 설정 문서
   railway.md             # Railway 배포 가이드
   todo.md                # 할 일 목록
+install_tool/            # 설치 도우미 프로그램
+  install.bat            # 설치 시작 배치파일 (Python 설치 지원)
+  installer.py           # 웹 UI 기반 설치 마법사 (개발 중)
 supabase/                # Supabase 프로젝트 설정
 chat_bot/               # Python 채팅봇 클라이언트
 chat_client/            # HTML/JS 웹 채팅 클라이언트
@@ -209,3 +212,44 @@ HTML 클라이언트 (Railway 배포) ←→ Supabase Realtime ←→ Python 봇
 - 정상 종료 처리 (quit 명령, 별도 입력 스레드 + Queue + asyncio.sleep)
 - 진행 상황 UI, Edit diff 표시, 마크다운 렌더링
 - 커밋: 이 버전 기준으로 안정적 작동 확인됨
+
+## 설치 도우미 프로그램 (개발 중)
+
+### 목표
+`user_install.md`의 설치 과정을 웹 UI로 가이드하는 설치 마법사 프로그램
+
+### 구조
+```
+install_tool/
+  ├── install.bat    # 진입점 (Python 설치 지원)
+  └── installer.py   # 웹 UI 설치 마법사
+```
+
+### 작동 방식
+1. 사용자가 `install.bat` 더블클릭
+2. Python 설치 여부 확인
+   - 없으면: winget으로 Python 자동 설치 → 새 터미널에서 재실행
+   - 있으면: `installer.py` 실행
+3. 로컬 웹 서버 시작 (localhost)
+4. 브라우저 자동 오픈
+5. 웹 UI에서 단계별 설치 가이드
+   - 버튼 클릭 → 터미널 명령 실행 → 결과 표시
+   - 입력 폼으로 Supabase URL, API 키 등 설정
+
+### 기술 스택
+- Python 표준 라이브러리: `http.server`, `webbrowser`, `subprocess`
+- 외부 의존성 없음 (설치 전 단계이므로)
+
+### 현재 상태
+- [x] `install.bat` 생성 (Python 설치 확인/설치 지원)
+- [x] `installer.py` 기본 파일 생성
+- [x] 웹 서버 구현 (http.server, 포트 8888)
+- [x] HTML UI 구현 (다크 테마, 5단계 표시, 진행률)
+- [x] 터미널 명령 실행 (subprocess, POST /run 엔드포인트)
+- [x] CLI 도구 설치: Node.js, Claude CLI, Supabase CLI, Railway CLI
+- [x] 자동 설치 fallback: 도구 미설치 시 자동 설치 (winget/npm)
+- [x] 입력 폼 (Supabase URL, API 키, 봇 계정)
+- [x] 설정 파일 자동 생성 (chat_bot/.env, chat_client/config.js)
+- [x] Supabase CLI 연동: 프로젝트 목록/API 키 자동 가져오기
+- [x] Supabase CLI 프로젝트 생성: 조직 선택, 프로젝트명, DB 비밀번호, 리전 설정
+- [x] 4단계 가이드: 프로젝트 생성, 사용자 계정, 봇 계정 생성 안내
