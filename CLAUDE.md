@@ -26,8 +26,8 @@ chat_socket/            # 로컬 WebSocket 채팅 서버
   icons/                # PWA 앱 아이콘
   install.bat           # 의존성 설치 스크립트 (Python, Node.js, ngrok, aiohttp, Claude CLI)
   config.bat            # ngrok 설정 스크립트 (port, authtoken, domain, OAuth)
-  run.bat               # 로컬 실행 스크립트
-  run_ngrok.bat         # ngrok 외부 접속 스크립트
+  run.bat               # 로컬 실행 스크립트 (config.bat에서 생성)
+  run_ngrok.bat         # ngrok 외부 접속 스크립트 (config.bat에서 생성)
   run_server_loop.bat   # 서버 재시작 루프 (내부용)
   docs/                 # 문서 폴더
     chat_socket.md      # Chat Socket 문서
@@ -159,6 +159,8 @@ run_ngrok.bat
 
 ### v3.2 (2026-01-31)
 - **포트번호 설정 기능**: config.bat에서 서버 포트 설정 가능 (기본값 8765)
+- **run.bat 동적 생성**: config.bat에서 run.bat과 run_ngrok.bat 모두 생성
+- **make_release.bat GitHub 릴리즈 개선**: gh auth 체크, 태그/릴리즈 로직 단순화, 에러 처리 강화
 
 ### v3.1 (2026-01-31)
 - **바로가기 파일 제거**: .lnk 파일 삭제, bat 파일로 실행 통일

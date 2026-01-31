@@ -15,6 +15,7 @@ echo.
 echo ================================================
 echo Default port: 8765
 echo (Press Enter to use default)
+echo (Previous setting will NOT be preserved)
 echo ================================================
 echo.
 set /p SERVER_PORT=Port number:
@@ -60,6 +61,7 @@ echo.
 echo ================================================
 echo Example: myapp.ngrok-free.app
 echo (Press Enter to skip - will use random URL)
+echo (Previous setting will NOT be preserved)
 echo ================================================
 echo.
 set /p NGROK_DOMAIN=Static domain:
@@ -79,6 +81,7 @@ echo ================================================
 echo Enter allowed Google email address
 echo Example: user@gmail.com
 echo (Press Enter to skip - public access)
+echo (Previous setting will NOT be preserved)
 echo ================================================
 echo.
 set /p OAUTH_EMAIL=Allowed email:
@@ -90,11 +93,67 @@ if "%OAUTH_EMAIL%"=="" (
 echo.
 
 :: ========================================
+:: Generate run.bat
+:: ========================================
+echo [Info] Generating run.bat...
+
+set "RUN_FILE=%~dp0run.bat"
+
+> "%RUN_FILE%" echo @echo off
+>> "%RUN_FILE%" echo echo ========================================
+>> "%RUN_FILE%" echo echo Chat Socket Server Start
+>> "%RUN_FILE%" echo echo ========================================
+>> "%RUN_FILE%" echo echo.
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo REM Check aiohttp
+>> "%RUN_FILE%" echo python -m pip show aiohttp ^> nul 2^>^&1
+>> "%RUN_FILE%" echo if errorlevel 1 (
+>> "%RUN_FILE%" echo     echo Installing aiohttp library...
+>> "%RUN_FILE%" echo     python -m pip install aiohttp
+>> "%RUN_FILE%" echo     echo.
+>> "%RUN_FILE%" echo )
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo REM Change to parent directory for Claude CLI working directory
+>> "%RUN_FILE%" echo cd /d "%%~dp0.."
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo :restart_loop
+>> "%RUN_FILE%" echo echo Starting server...
+>> "%RUN_FILE%" echo echo Access: http://localhost:%SERVER_PORT%
+>> "%RUN_FILE%" echo echo Working directory: %%cd%%
+>> "%RUN_FILE%" echo echo.
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo REM Open browser (only on first start)
+>> "%RUN_FILE%" echo if not defined BROWSER_OPENED (
+>> "%RUN_FILE%" echo     set BROWSER_OPENED=1
+>> "%RUN_FILE%" echo     start http://localhost:%SERVER_PORT%
+>> "%RUN_FILE%" echo )
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo python "chat_socket/server.py" --port %SERVER_PORT%
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo REM Exit code 100 = restart request
+>> "%RUN_FILE%" echo if %%errorlevel%% == 100 (
+>> "%RUN_FILE%" echo     echo.
+>> "%RUN_FILE%" echo     echo ========================================
+>> "%RUN_FILE%" echo     echo Restarting server... (applying changes)
+>> "%RUN_FILE%" echo     echo ========================================
+>> "%RUN_FILE%" echo     echo.
+>> "%RUN_FILE%" echo     timeout /t 2 /nobreak ^> nul
+>> "%RUN_FILE%" echo     goto restart_loop
+>> "%RUN_FILE%" echo )
+>> "%RUN_FILE%" echo.
+>> "%RUN_FILE%" echo echo.
+>> "%RUN_FILE%" echo echo Server stopped.
+>> "%RUN_FILE%" echo pause
+
+echo [OK] run.bat generated
+echo.
+
+:: ========================================
 :: Generate run_ngrok.bat
 :: ========================================
 echo [Info] Generating run_ngrok.bat...
 
-set "OUTPUT_FILE=%~dp0run_ngrok.bat"
+set "NGROK_FILE=%~dp0run_ngrok.bat"
 
 :: Build ngrok command
 set "NGROK_CMD=ngrok http %SERVER_PORT%"
@@ -112,35 +171,33 @@ if not "%OAUTH_EMAIL%"=="" (
     set "OAUTH_DISPLAY=%OAUTH_EMAIL%"
 )
 
-:: Write run_ngrok.bat using parentheses block
-(
-echo @echo off
-echo title Chat Socket + ngrok
-echo.
-echo REM Store script directory before start command
-echo set "SCRIPT_DIR=%%~dp0"
-echo.
-echo echo ================================================
-echo echo Chat Socket + ngrok
-echo echo ================================================
-echo echo.
-echo echo Port: %PORT_DISPLAY%
-echo echo Domain: %DOMAIN_DISPLAY%
-echo echo OAuth: %OAUTH_DISPLAY%
-echo echo.
-echo echo [1] Starting server (with restart loop)...
-echo start "Chat Socket Server" /D "%%SCRIPT_DIR%%" cmd /k "run_server_loop.bat %SERVER_PORT%"
-echo echo [Wait] 3 seconds...
-echo timeout /t 3 /nobreak ^> nul
-echo echo [2] Starting ngrok tunnel...
-echo echo.
-echo %NGROK_CMD%
-echo echo.
-echo echo ================================================
-echo echo ngrok closed.
-echo echo ================================================
-echo pause
-) > "%OUTPUT_FILE%"
+:: Write run_ngrok.bat line by line
+> "%NGROK_FILE%" echo @echo off
+>> "%NGROK_FILE%" echo title Chat Socket + ngrok
+>> "%NGROK_FILE%" echo.
+>> "%NGROK_FILE%" echo REM Store script directory before start command
+>> "%NGROK_FILE%" echo set "SCRIPT_DIR=%%~dp0"
+>> "%NGROK_FILE%" echo.
+>> "%NGROK_FILE%" echo echo ================================================
+>> "%NGROK_FILE%" echo echo Chat Socket + ngrok
+>> "%NGROK_FILE%" echo echo ================================================
+>> "%NGROK_FILE%" echo echo.
+>> "%NGROK_FILE%" echo echo Port: %PORT_DISPLAY%
+>> "%NGROK_FILE%" echo echo Domain: %DOMAIN_DISPLAY%
+>> "%NGROK_FILE%" echo echo OAuth: %OAUTH_DISPLAY%
+>> "%NGROK_FILE%" echo echo.
+>> "%NGROK_FILE%" echo echo [1] Starting server (with restart loop)...
+>> "%NGROK_FILE%" echo start "Chat Socket Server" /D "%%SCRIPT_DIR%%" cmd /k "run_server_loop.bat %SERVER_PORT%"
+>> "%NGROK_FILE%" echo echo [Wait] 3 seconds...
+>> "%NGROK_FILE%" echo timeout /t 3 /nobreak ^> nul
+>> "%NGROK_FILE%" echo echo [2] Starting ngrok tunnel...
+>> "%NGROK_FILE%" echo echo.
+>> "%NGROK_FILE%" echo %NGROK_CMD%
+>> "%NGROK_FILE%" echo echo.
+>> "%NGROK_FILE%" echo echo ================================================
+>> "%NGROK_FILE%" echo echo ngrok closed.
+>> "%NGROK_FILE%" echo echo ================================================
+>> "%NGROK_FILE%" echo pause
 
 echo [OK] run_ngrok.bat generated
 echo.

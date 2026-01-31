@@ -12,22 +12,22 @@ if errorlevel 1 (
     echo.
 )
 
-REM Change to parent directory (onethelab_setting) for Claude CLI working directory
+REM Change to parent directory for Claude CLI working directory
 cd /d "%~dp0.."
 
 :restart_loop
 echo Starting server...
-echo Access: http://localhost:8765
+echo Access: http://localhost:9123
 echo Working directory: %cd%
 echo.
 
 REM Open browser (only on first start)
 if not defined BROWSER_OPENED (
     set BROWSER_OPENED=1
-    start http://localhost:8765
+    start http://localhost:9123
 )
 
-python "chat_socket/server.py"
+python "chat_socket/server.py" --port 9123
 
 REM Exit code 100 = restart request
 if %errorlevel% == 100 (
