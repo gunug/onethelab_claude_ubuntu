@@ -34,8 +34,6 @@ chat_socket/            # 로컬 WebSocket 채팅 서버
     claude_code_tools.md # Claude Code 도구 목록
     python_install.md   # Python 설치 가이드
     todo.md             # 할 일 목록
-ChatSocket_Local.lnk    # 로컬 실행 바로가기
-ChatSocket_Ngrok.lnk    # ngrok 실행 바로가기
 README.md               # 프로젝트 소개 문서
 ```
 
@@ -68,15 +66,15 @@ config.bat  # ngrok authtoken, domain, OAuth 설정
 
 ### 로컬 실행
 ```bash
-# ChatSocket_Local.lnk 더블클릭 또는
-python chat_socket/server.py
+run.bat
+# 또는 직접 실행: python server.py
 # 브라우저에서 http://localhost:8765 접속
 ```
 
 ### ngrok 외부 접속
 ```bash
-# ChatSocket_Ngrok.lnk 더블클릭 또는
 run_ngrok.bat
+# (config.bat 실행 후 생성됨)
 ```
 브라우저에서 ngrok URL (https://your-domain.ngrok-free.app) 접속 → 자동 연결
 
@@ -130,6 +128,7 @@ run_ngrok.bat
   - 페이지 로드 시 URL에서 code, state, error 파라미터 자동 제거
   - 새로고침 버튼 클릭 시 클린 URL로 이동 (OAuth 파라미터 없이)
   - history.replaceState로 뒤로가기 시 OAuth URL로 가지 않도록 처리
+  - WebSocket 연결 성공 시 ngrok OAuth 쿠키 자동 삭제 (연결 후 불필요한 쿠키 정리)
 - 세션 자동 복구 기능
   - 타임아웃 발생 시 자동 세션 리셋
   - 모든 클라이언트 연결 종료 시 세션 리셋 및 처리 중인 작업 중단
@@ -157,10 +156,12 @@ run_ngrok.bat
 
 ## 버전 정보
 
+### v3.1 (2026-01-31)
+- **바로가기 파일 제거**: .lnk 파일 삭제, bat 파일로 실행 통일
+
 ### v3.0 (2026-01-30) - chat_socket 단일화
 - **프로젝트 구조 정리**: chat_bot, chat_client, supabase, install_tool 삭제
 - **chat_socket 단일화**: Supabase 없이 로컬 WebSocket 서버만 사용
-- **바로가기 추가**: ChatSocket_Local.lnk, ChatSocket_Ngrok.lnk
 
 ### v2.5 이전 버전
 - Supabase Realtime 기반 버전 (deprecated)

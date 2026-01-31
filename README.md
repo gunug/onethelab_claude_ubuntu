@@ -42,19 +42,18 @@
 │   ├── index.html          # 웹 채팅 인터페이스
 │   ├── manifest.json       # PWA 설정
 │   ├── service-worker.js   # PWA 서비스 워커
+│   ├── requirements.txt    # Python 의존성
 │   ├── icons/              # PWA 앱 아이콘
+│   ├── docs/               # 문서 폴더
+│   │   ├── chat_socket.md  # Chat Socket 문서
+│   │   ├── claude_code_tools.md
+│   │   ├── python_install.md
+│   │   └── todo.md
 │   ├── install.bat         # 의존성 설치 스크립트
 │   ├── config.bat          # ngrok 설정 스크립트
 │   ├── run.bat             # 로컬 실행 스크립트
 │   ├── run_ngrok.bat       # ngrok 외부 접속 스크립트 (config.bat으로 생성, .gitignore)
 │   └── run_server_loop.bat # 서버 재시작 루프 (내부용)
-├── project_docs/           # 프로젝트 문서
-│   ├── chat_socket.md      # Chat Socket 문서
-│   ├── claude_code_tools.md
-│   ├── python_install.md
-│   └── todo.md
-├── ChatSocket_Local.lnk    # 로컬 실행 바로가기
-├── ChatSocket_Ngrok.lnk    # ngrok 실행 바로가기
 ├── CLAUDE.md               # Claude Code 작업 지침
 └── README.md               # 프로젝트 소개 문서
 ```
@@ -135,16 +134,17 @@ config.bat
 
 **로컬 실행:**
 ```bash
-# ChatSocket_Local.lnk 더블클릭 또는
-python chat_socket/server.py
+cd chat_socket
+run.bat
+# 또는 직접 실행: python server.py
 ```
 브라우저에서 http://localhost:8765 접속
 
 **ngrok 외부 접속:**
 ```bash
-# ChatSocket_Ngrok.lnk 더블클릭 또는
-python chat_socket/server.py  # 터미널 1
-ngrok http 8765               # 터미널 2
+cd chat_socket
+run_ngrok.bat
+# (config.bat 실행 후 생성됨)
 ```
 브라우저에서 ngrok URL (https://your-domain.ngrok-free.app) 접속
 
@@ -152,7 +152,7 @@ ngrok http 8765               # 터미널 2
 
 ### 기본 사용
 
-1. 서버 실행 (`ChatSocket_Local.lnk` 또는 `ChatSocket_Ngrok.lnk`)
+1. 서버 실행 (`run.bat` 또는 `run_ngrok.bat`)
 2. 브라우저에서 접속
    - 로컬: `http://localhost:8765`
    - 외부: ngrok 도메인 URL
@@ -182,10 +182,12 @@ ngrok http 8765               # 터미널 2
 
 ## 버전 히스토리
 
+### v3.1 (2026-01-31)
+- 바로가기 파일(.lnk) 제거, bat 파일로 통일
+
 ### v3.0 (2026-01-30) - chat_socket 단일화
 - 프로젝트 구조 정리 (chat_bot, chat_client, supabase 삭제)
 - chat_socket 로컬 WebSocket 서버만 사용
-- 바로가기 파일 추가 (ChatSocket_Local.lnk, ChatSocket_Ngrok.lnk)
 
 ### v2.5 이전 버전 (deprecated)
 - Supabase Realtime 기반 버전
