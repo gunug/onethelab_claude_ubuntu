@@ -1,191 +1,161 @@
 # Claude Code Remote Access
 
-로컬 PC의 Claude Code CLI 환경을 외부에서 원격으로 접근하여 사용하기 위한 프로젝트입니다.
+Ubuntu 서버에서 Docker 컨테이너로 격리된 Claude Code CLI 환경을 웹 브라우저로 원격 접근하는 프로젝트입니다.
 
 ## 프로젝트 목적
 
-- **로컬 개발환경 원격 접근**: 로컬 PC에 Claude Code CLI 환경을 구축하고, 외부에서 WebSocket 통신으로 접근
-- **실시간 통신**: Python 통합 서버(HTTP + WebSocket)를 통해 브라우저와 Claude CLI 간 실시간 메시지 전송
-- **웹 기반 인터페이스**: 어디서든 브라우저로 접속하여 Claude Code와 상호작용
+- **서버 기반 원격 접근**: Ubuntu 서버에 Claude Code CLI 환경을 구축하고, HTTPS로 안전하게 접근
+- **Docker 격리**: 보안을 위해 Docker 컨테이너 내에서 Claude CLI 실행
+- **Google OAuth 인증**: 허용된 이메일만 접근 가능
+- **실시간 통신**: WebSocket을 통해 브라우저와 Claude CLI 간 실시간 메시지 전송
 
 ## 시스템 구조
 
 ```
-[브라우저] ←── HTTP + WebSocket ──→ [Python 통합 서버] ←──CLI──→ [Claude]
-                                    (localhost:8765)
+[브라우저] ←─ HTTPS ─→ [Nginx:443] ←─ HTTP ─→ [Docker:8765] ←─ CLI ─→ [Claude]
+                        (SSL/TLS)              (Python 서버)
 ```
 
-### 연동 방식
+### 구성 요소
 
-1. **Python 통합 서버**: HTTP와 WebSocket을 동시에 제공하는 aiohttp 기반 서버
-2. **웹 인터페이스**: 서버의 `/` 경로에서 자동으로 index.html 제공
-3. **WebSocket 채팅**: `/ws` 경로로 실시간 양방향 통신
-4. **Claude Code CLI**: 프린트 모드(`-p -`)로 프롬프트 수신 및 응답
+1. **Nginx**: HTTPS 처리 및 리버스 프록시 (443 → 8765)
+2. **Docker 컨테이너**: Python 서버 + Claude CLI 격리 실행
+3. **Google OAuth**: 사용자 인증 (허용 이메일 화이트리스트)
+4. **Let's Encrypt**: 무료 SSL 인증서 (자동 갱신)
 
 ## 주요 기능
 
-- **실시간 통신**: WebSocket 기반 양방향 메시지 전송
-- **Claude AI 통합**: Claude CLI를 활용한 AI 채팅봇 응답
-- **세션 관리**: 대화 컨텍스트를 유지하는 세션 기능 (`--session-id`, `-r` 옵션)
-- **진행 상황 표시**: Claude 응답 생성 과정을 실시간으로 확인 (도구 호출, 비용, 토큰)
-- **마크다운 렌더링**: 채팅 메시지에 마크다운 문법 지원
-- **요청 대기열**: 여러 요청을 순차 처리, 대기열 UI 표시
-- **사용량 모니터링**: 5시간 블록 사용량, 오늘 총 사용량, 남은 시간 표시
+- **HTTPS 보안 통신**: Let's Encrypt SSL 인증서
+- **Google OAuth 2.0**: 허용된 이메일만 로그인 가능
+- **실시간 WebSocket**: 양방향 메시지 전송
+- **Claude AI 통합**: Claude CLI 스트리밍 응답
+- **진행 상황 표시**: 도구 호출, 비용, 토큰 실시간 확인
+- **세션 관리**: 대화 컨텍스트 유지
+- **요청 대기열**: 여러 요청 순차 처리
+- **사용량 모니터링**: 5시간 블록 사용량, 남은 시간 표시
 - **PWA 지원**: 모바일에서 앱처럼 설치 가능
-- **ngrok 터널링**: 외부에서 접속 가능
+- **Docker 격리**: 보안을 위한 컨테이너 기반 실행
 
 ## 프로젝트 구조
 
 ```
-├── chat_socket/            # 로컬 WebSocket 채팅 서버
-│   ├── server.py           # Python 통합 서버 (HTTP + WebSocket)
+onethelab_claude_ubuntu/
+├── Dockerfile              # Docker 이미지 정의
+├── docker-compose.yml      # Docker Compose 설정
+├── docker-run.sh           # Docker 빌드 및 실행
+├── docker-stop.sh          # Docker 컨테이너 중지
+├── docker-reset.sh         # Docker 초기화 (컨테이너/이미지 삭제)
+├── .dockerignore           # Docker 빌드 제외 파일
+├── .env.example            # 환경 변수 예시 (OAuth 설정)
+├── nginx-site.conf         # Nginx 사이트 설정
+├── workspace/              # Claude 작업 디렉토리 (컨테이너에 마운트)
+├── chat_socket/            # WebSocket 채팅 서버
+│   ├── server.py           # Python 통합 서버 (HTTP + WebSocket + OAuth)
 │   ├── index.html          # 웹 채팅 인터페이스
+│   ├── auth/               # Google OAuth 인증 모듈
+│   │   ├── __init__.py
+│   │   ├── oauth.py        # Google OAuth 로직
+│   │   └── session.py      # 메모리 기반 세션 관리
+│   ├── templates/          # HTML 템플릿
+│   │   └── login.html      # 로그인 페이지
 │   ├── manifest.json       # PWA 설정
 │   ├── service-worker.js   # PWA 서비스 워커
-│   ├── requirements.txt    # Python 의존성
 │   ├── icons/              # PWA 앱 아이콘
-│   ├── docs/               # 문서 폴더
-│   │   ├── chat_socket.md  # Chat Socket 문서
-│   │   ├── claude_code_tools.md
-│   │   ├── python_install.md
-│   │   └── todo.md
-│   ├── install.bat         # 의존성 설치 스크립트
-│   ├── config.bat          # ngrok 설정 스크립트
-│   ├── run.bat             # 로컬 실행 스크립트
-│   ├── run_ngrok.bat       # ngrok 외부 접속 스크립트 (config.bat으로 생성, .gitignore)
-│   └── run_server_loop.bat # 서버 재시작 루프 (내부용)
+│   └── docs/               # 문서 폴더
 ├── CLAUDE.md               # Claude Code 작업 지침
 └── README.md               # 프로젝트 소개 문서
 ```
 
 ## 요구 사항
 
-- Python 3.8 이상
-- aiohttp 패키지
-- Claude CLI (`npm install -g @anthropic-ai/claude-code`)
-- (선택) ngrok - 외부 접속용
+### 서버 요구 사항
+- Ubuntu 20.04 이상
+- Docker 20.10 이상
+- Nginx
+- Certbot (Let's Encrypt)
+- 도메인 (SSL 인증서 발급용)
 
-## ngrok 설정 (외부 접속 시 필수)
-
-외부에서 접속하려면 ngrok 설정이 필요합니다.
-
-### 1. ngrok 가입 및 유료 플랜 구독
-
-1. [ngrok.com](https://ngrok.com)에서 계정 가입
-2. **유료 플랜 구독 필요** (Personal 플랜 이상)
-   - 고정 도메인 사용을 위해 필요
-   - 접속 계정 제한(OAuth) 기능 사용을 위해 필요
-   - 무료 플랜은 임시 URL만 제공되어 매번 URL이 변경됨
-
-### 2. config.bat 실행
-
-`config.bat`를 실행하여 다음 정보를 입력합니다:
-
-- **ngrok Auth Token**: ngrok 대시보드 → Your Authtoken에서 복사
-- **ngrok 도메인**: ngrok 대시보드 → Domains에서 생성한 고정 도메인 (예: `your-domain.ngrok-free.app`)
-- **OAuth 허용 계정**: 접속을 허용할 Google/GitHub 이메일 주소
-
-### 3. 유료 플랜이 필요한 이유
-
-| 기능 | 무료 플랜 | 유료 플랜 (Personal+) |
-|------|----------|---------------------|
-| 고정 도메인 | ❌ | ✅ |
-| OAuth 접속 제한 | ❌ | ✅ |
-| 동시 터널 수 | 1개 | 3개+ |
+### 외부 서비스
+- Google Cloud Console 계정 (OAuth 클라이언트 ID)
+- Anthropic 계정 (Claude CLI 인증)
 
 ## 설치 및 실행
 
 ### 1. 프로젝트 다운로드
 
 ```bash
-git clone https://github.com/gunug/onethelab_setting.git
-cd onethelab_setting
+git clone https://github.com/gunug/onethelab_claude_ubuntu.git
+cd onethelab_claude_ubuntu
 ```
 
-### 2. 의존성 설치
+### 2. Docker 설치
 
 ```bash
-# install.bat 실행 (Python, Node.js, ngrok, aiohttp, Claude CLI 자동 설치)
-cd chat_socket
-install.bat
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker  # 또는 재로그인
 ```
 
-또는 수동 설치:
-```bash
-pip install aiohttp
-npm install -g @anthropic-ai/claude-code
-```
-
-### 3. ngrok 설정 (외부 접속 시 필수)
+### 3. Claude CLI 인증 (호스트에서)
 
 ```bash
-# config.bat 실행하여 ngrok 설정 및 run_ngrok.bat 생성
-config.bat
+npx @anthropic-ai/claude-code  # 로그인하여 ~/.claude/.credentials.json 생성
 ```
 
-입력 항목:
-- ngrok Auth Token
-- ngrok 도메인
-- OAuth 허용 계정 (이메일)
+### 4. Google OAuth 설정
 
-**중요:** `config.bat` 실행 시 `run_ngrok.bat` 파일이 자동 생성됩니다. 이 파일은 개인 설정(도메인, 이메일)이 포함되어 있어 `.gitignore`에 등록되어 있습니다. 외부 접속을 위해서는 반드시 `config.bat`을 먼저 실행해야 합니다.
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials)에서 OAuth 2.0 클라이언트 ID 생성
+2. 승인된 리디렉션 URI 추가: `https://your-domain.com/auth/google/callback`
+3. `.env` 파일 생성:
 
-### 4. 실행
-
-**로컬 실행:**
 ```bash
-cd chat_socket
-run.bat
-# 또는 직접 실행: python server.py
+cp .env.example .env
+# .env 파일 편집하여 실제 값 입력
 ```
-브라우저에서 http://localhost:8765 접속
 
-**ngrok 외부 접속:**
+```env
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+ALLOWED_EMAILS=admin@gmail.com,user@gmail.com
+SESSION_SECRET=your-random-secret-key
+```
+
+### 5. Nginx + SSL 설정
+
 ```bash
-cd chat_socket
-run_ngrok.bat
-# (config.bat 실행 후 생성됨)
+# Nginx, Certbot 설치
+sudo apt install -y nginx certbot python3-certbot-nginx
+
+# SSL 인증서 발급
+sudo certbot certonly --standalone -d your-domain.com
+
+# Nginx 설정 복사
+sudo cp nginx-site.conf /etc/nginx/sites-available/your-domain.com
+sudo ln -sf /etc/nginx/sites-available/your-domain.com /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Nginx 시작
+sudo nginx -t && sudo systemctl restart nginx
 ```
-브라우저에서 ngrok URL (https://your-domain.ngrok-free.app) 접속
 
-## 문제 해결
+### 6. Docker 실행
 
-### 노트북 배터리 모드에서 WebSocket 연결이 자주 끊김
+```bash
+./docker-run.sh     # 빌드 및 실행
+./docker-stop.sh    # 중지
+./docker-reset.sh   # 초기화 (문제 발생 시)
+```
 
-노트북을 배터리 모드로 사용할 때 WebSocket 연결이 자주 끊기는 현상이 발생할 수 있습니다.
+### 7. 접속
 
-**원인**: Windows가 배터리 절약을 위해 Wi-Fi 어댑터를 절전 모드로 전환하면서 모든 네트워크 연결이 일시적으로 끊김
-
-**해결 방법** (네트워크 어댑터 절전 기능 끄기):
-1. `Win + X` → **장치 관리자** 실행 (또는 `장치 관리자` → `네트워크 어댑터` → Wi-Fi 어댑터 → `속성` → `전원 관리`)
-2. **네트워크 어댑터** 확장
-3. Wi-Fi 어댑터 (예: Intel Wi-Fi, Realtek 등) **우클릭** → **속성**
-4. **전원 관리** 탭 선택
-5. ☐ **"전원을 절약하기 위해 컴퓨터가 이 장치를 끌 수 있음"** 체크 해제
-6. **확인** 클릭
-
-**참고**: 이 설정을 변경하면 배터리 소모가 약간 증가할 수 있습니다.
-
-### ngrok 접속 시 OAuth state error 발생
-
-ngrok 터널을 재시작한 후 접속할 때 OAuth state error가 발생할 수 있습니다.
-
-**원인**: 브라우저에 저장된 이전 세션의 OAuth 쿠키가 새 터널 세션과 충돌
-
-**해결 방법**:
-1. 브라우저 쿠키 삭제 후 재접속
-   - Chrome: `F12` → Application → Cookies → ngrok 관련 쿠키 삭제
-   - 또는 `Ctrl+Shift+Delete` → 쿠키 삭제
-2. 시크릿/프라이빗 창에서 접속
+브라우저에서 `https://your-domain.com` 접속
 
 ## 사용 방법
 
 ### 기본 사용
 
-1. 서버 실행 (`run.bat` 또는 `run_ngrok.bat`)
-2. 브라우저에서 접속
-   - 로컬: `http://localhost:8765`
-   - 외부: ngrok 도메인 URL
+1. 브라우저에서 도메인 접속
+2. Google 계정으로 로그인 (허용된 이메일만)
 3. 메시지 입력란에 질문/명령 입력
 4. Claude Code가 실시간으로 응답
 
@@ -201,28 +171,85 @@ ngrok 터널을 재시작한 후 접속할 때 OAuth state error가 발생할 �
 - **요청 대기열**: 여러 요청을 큐에 추가하여 순차 처리
 - **사용량 모니터링**: 헤더에서 API 사용량 및 남은 시간 확인
 - **알림음**: 대기열 완료 시 알림 (토글 가능)
-- **서버 재시작**: 코드 변경 후 서버만 재시작 (ngrok URL 유지)
+- **사용자 정보**: 헤더에 로그인한 사용자 정보 및 로그아웃 버튼
+
+## 보안
+
+### Docker 컨테이너 격리
+
+- `--security-opt no-new-privileges`: 권한 상승 금지
+- `--memory 1g --cpus 1`: 리소스 제한
+- `workspace/`: 작업 폴더만 쓰기 가능 (호스트에 마운트)
+
+### 보안 위협 및 대응
+
+| 위협 | Docker 없이 | Docker 있을 때 |
+|------|------------|---------------|
+| `rm -rf /` | 호스트 전체 삭제 | 컨테이너 내부만 영향 |
+| SSH 키 삽입 | 호스트 탈취 가능 | 호스트 접근 불가 |
+| reverse shell | 호스트 쉘 획득 | 컨테이너 쉘만 획득 |
+
+### 공격 시 복구
+
+```bash
+./docker-reset.sh   # 컨테이너/이미지 삭제
+./docker-run.sh     # 깨끗한 이미지로 재시작
+```
+
+## 문제 해결
+
+### Docker 컨테이너가 시작되지 않음
+
+```bash
+# 로그 확인
+docker logs claude-chat-server
+
+# 컨테이너 상태 확인
+docker ps -a
+```
+
+### SSL 인증서 갱신
+
+Let's Encrypt 인증서는 90일마다 갱신 필요:
+
+```bash
+sudo certbot renew
+```
+
+자동 갱신 확인:
+```bash
+sudo systemctl status certbot.timer
+```
 
 ## 기술 스택
 
+- **Server**: Ubuntu, Docker, Nginx
 - **Backend**: Python, aiohttp (HTTP + WebSocket 통합 서버)
+- **Auth**: Google OAuth 2.0, 메모리 기반 세션
 - **Frontend**: HTML, CSS, JavaScript, marked.js
 - **AI**: Claude Code CLI (Anthropic)
-- **통신**: WebSocket
+- **SSL**: Let's Encrypt (Certbot)
 
 ## 버전 히스토리
 
-### v3.1 (2026-01-31)
-- 바로가기 파일(.lnk) 제거, bat 파일로 통일
+### v4.2 (2026-02-01) - HTTPS 지원
+- Let's Encrypt SSL 인증서 (sub.onethelab.com)
+- Nginx 리버스 프록시 (443 → 8765)
+- WebSocket over HTTPS (wss://) 지원
 
-### v3.0 (2026-01-30) - chat_socket 단일화
-- 프로젝트 구조 정리 (chat_bot, chat_client, supabase 삭제)
-- chat_socket 로컬 WebSocket 서버만 사용
+### v4.1 (2026-02-01) - Google OAuth 인증
+- Google OAuth 2.0 인증 추가
+- 허용 이메일 화이트리스트
+- 로그인 페이지 및 사용자 UI
 
-### v2.5 이전 버전 (deprecated)
-- Supabase Realtime 기반 버전
-- chat_bot (Python) + chat_client (HTML) 구조
-- Railway 배포, Supabase Auth + MFA 지원
+### v4.0 (2026-02-01) - Ubuntu 서버 이전
+- Ubuntu 서버 배포 (Windows에서 이전)
+- Docker 컨테이너 격리 환경
+- ngrok 제거, 직접 IP 접속 방식
+
+### v3.x 이전 버전
+- Windows 기반 로컬 실행
+- ngrok 터널링 지원
 
 ## 라이선스
 

@@ -47,9 +47,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    - `.env.example` 파일 생성
 
 ### 다음 세션에서 할 일
-1. ⬜ HTTPS + OAuth 테스트
-   - https://sub.onethelab.com 접속 테스트
-   - Google OAuth 콜백 URL을 HTTPS로 변경 후 테스트
+- (현재 없음)
+
+### 완료된 추가 작업
+10. ✅ HTTPS 설정 완료
+    - Let's Encrypt 인증서 발급 (sub.onethelab.com)
+    - Nginx 리버스 프록시 설정 (443 → 8765)
+11. ✅ Google OAuth 테스트 완료
+    - https://sub.onethelab.com 접속 확인
+    - Google 로그인 및 허용 이메일 인증 확인
 
 ### 서버 정보
 - IP: 158.247.252.160
