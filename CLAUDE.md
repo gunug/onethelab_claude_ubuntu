@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **할 일을 물어보면 `chat_socket/docs/todo.md` 파일을 읽고 답할 것. 할 일 추가 요청 시 해당 파일에 추가할 것.**
 
+**매 컨테이너 추가/삭제 시 반드시 CLAUDE.md의 "실행 중인 컨테이너 목록" 섹션을 업데이트할 것.**
+
 ---
 
 ## 현재 진행 상황 (Ubuntu 서버 이전 작업)
@@ -59,11 +61,78 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 서버 정보
 - IP: 158.247.252.160
-- 도메인: sub.onethelab.com
 - 사용자: onethelab_admin
 - 프로젝트 경로: `/home/onethelab_admin/onethelab_claude_ubuntu`
 - SSH 포트: 2202
-- 서비스 포트: 443 (HTTPS, Nginx) → 8765 (Docker)
+
+---
+
+## 실행 중인 컨테이너 목록
+
+| 컨테이너명 | 도메인 | 포트 (Nginx → Docker) | 환경 변수 파일 | workspace | 상태 |
+|-----------|--------|----------------------|---------------|-----------|------|
+| claude-chat-server | sub.onethelab.com | 443 → 8765 | .env | workspace/ | ✅ 실행 중 |
+
+### 컨테이너 관리 명령어
+```bash
+# 컨테이너 상태 확인
+docker ps -a
+
+# 특정 컨테이너 로그 확인
+docker logs <컨테이너명>
+
+# 컨테이너 중지/시작
+docker stop <컨테이너명>
+docker start <컨테이너명>
+```
+
+---
+
+## 다중 컨테이너 확장 시나리오
+
+### 구조
+```
+                          ┌─ sub.onethelab.com ─→ [Container A:8765]
+[브라우저] → [Nginx:443] ─┤
+                          └─ sub2.onethelab.com ─→ [Container B:8766]
+```
+
+### 새 컨테이너 추가 시 필요 작업
+
+1. **환경 변수 파일 생성**
+   ```bash
+   cp .env .env.site2
+   # ALLOWED_EMAILS 등 수정
+   ```
+
+2. **Docker 실행 스크립트 생성** (또는 docker-compose.yml 확장)
+   ```bash
+   # docker-run-site2.sh 생성
+   # 포트: 8766, 컨테이너명: claude-chat-server-2
+   ```
+
+3. **DNS 설정**
+   - 새 도메인 A 레코드 → 서버 IP
+
+4. **SSL 인증서 발급**
+   ```bash
+   sudo certbot certonly --standalone -d sub2.onethelab.com
+   ```
+
+5. **Nginx 설정 추가**
+   - 새 도메인용 server 블록 생성
+   - 프록시 대상 포트 변경 (8766)
+
+6. **Google OAuth 콜백 URI 추가**
+   - Google Cloud Console에서 새 도메인 콜백 URI 등록
+
+7. **CLAUDE.md 업데이트**
+   - 위 "실행 중인 컨테이너 목록" 테이블에 새 컨테이너 추가
+
+### 고려사항
+- Claude CLI 인증 (`~/.claude`)은 모든 컨테이너가 공유
+- 동시 사용 시 세션 충돌 가능성 있음
+- workspace는 컨테이너별로 분리 권장 (`workspace/`, `workspace2/`)
 
 ---
 
