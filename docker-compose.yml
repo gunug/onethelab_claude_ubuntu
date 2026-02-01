@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  claude-server:
+    build: .
+    container_name: claude-chat-server
+
+    # 보안 설정
+    security_opt:
+      - no-new-privileges:true
+    # read_only: true  # Claude CLI가 파일 쓰기 필요
+
+    # 쓰기 가능한 임시 디렉토리
+    tmpfs:
+      - /tmp:size=100M,mode=1777
+      - /home/appuser/.claude:size=10M,mode=0700
+
+    # 볼륨 마운트
+    volumes:
+      # Claude 인증 정보 (읽기 전용)
+      - ./.credentials.json:/home/appuser/.claude/.credentials.json:ro
+      # 작업 디렉토리 (쓰기 가능 - 프로젝트 파일 수정용)
+      - ./workspace:/app/workspace
+
+    # 포트 매핑
+    ports:
+      - "8765:8765"
+
+    # 리소스 제한
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+    # 환경 변수
+    environment:
+      - HOME=/home/appuser
+      - PYTHONUNBUFFERED=1
+
+    # 재시작 정책
+    restart: unless-stopped
+
+    # 로깅
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

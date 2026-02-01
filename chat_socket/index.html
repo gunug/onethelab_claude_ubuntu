@@ -159,6 +159,43 @@
             background-color: #7c7ff7;
         }
 
+        /* 사용자 정보 */
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-picture {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1px solid #333;
+        }
+
+        .user-name {
+            font-size: 12px;
+            color: #888;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .logout-btn {
+            padding: 4px 8px;
+            font-size: 11px;
+            background-color: transparent;
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        .logout-btn:hover {
+            background-color: rgba(239, 68, 68, 0.1);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
         /* 채팅 영역 */
         .chat-container {
             flex: 1;
@@ -1006,7 +1043,8 @@
             }
 
             .auto-scroll-container label,
-            .server-url-display {
+            .server-url-display,
+            .user-name {
                 display: none;
             }
 
@@ -1373,6 +1411,11 @@
             <button class="restart-btn" id="restartBtn">서버 재시작</button>
             <button class="clear-btn" id="refreshBtn">새로고침</button>
             <button class="clear-btn install-btn" id="installBtn">📲 앱 설치</button>
+            <div class="user-info" id="userInfo" style="display: none;">
+                <img id="userPicture" class="user-picture" alt="">
+                <span id="userName" class="user-name"></span>
+                <button class="clear-btn logout-btn" id="logoutBtn">로그아웃</button>
+            </div>
             <div class="connection-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">연결 중...</span>
@@ -2399,12 +2442,49 @@
             }
         }
 
+        // 사용자 인증 상태 확인 및 표시
+        async function checkAuthStatus() {
+            try {
+                const response = await fetch('/auth/status');
+                const data = await response.json();
+
+                const userInfo = document.getElementById('userInfo');
+                const userPicture = document.getElementById('userPicture');
+                const userName = document.getElementById('userName');
+                const logoutBtn = document.getElementById('logoutBtn');
+
+                if (data.authenticated) {
+                    userInfo.style.display = 'flex';
+                    if (data.picture) {
+                        userPicture.src = data.picture;
+                        userPicture.style.display = 'block';
+                    } else {
+                        userPicture.style.display = 'none';
+                    }
+                    userName.textContent = data.name || data.email || '';
+                    userName.title = data.email || '';
+
+                    // 로그아웃 버튼 이벤트
+                    logoutBtn.onclick = () => {
+                        if (confirm('로그아웃하시겠습니까?')) {
+                            window.location.href = '/auth/logout';
+                        }
+                    };
+                } else {
+                    userInfo.style.display = 'none';
+                }
+            } catch (e) {
+                console.log('[Auth] 인증 상태 확인 실패:', e);
+            }
+        }
+
         // 초기화 - 자동 연결
         updateServerUrlDisplay();
         initUsageInfoPanel();
         lockScreenOrientation();
         requestWakeLock();  // 화면 자동 잠금 방지
         startKeepAlive();  // ngrok 터널 활성 유지
+        checkAuthStatus();  // 인증 상태 확인
         connect();
 
         // Service Worker 등록 (PWA)

@@ -62,36 +62,9 @@ if errorlevel 1 (
 echo(
 
 :: ========================================
-:: 3. ngrok
+:: 3. aiohttp (Python module)
 :: ========================================
-echo [3/5] Checking ngrok...
-where ngrok > nul 2>&1
-if errorlevel 1 (
-    echo [!] ngrok not found. Installing...
-    echo(
-    winget install ngrok.ngrok --accept-source-agreements --accept-package-agreements
-    if errorlevel 1 (
-        echo [Error] ngrok install failed
-        echo Manual install: https://ngrok.com/download
-        pause
-        exit /b 1
-    )
-    echo(
-    echo [OK] ngrok installed
-    echo [!] Restarting script in new terminal...
-    echo(
-    timeout /t 2 /nobreak > nul
-    start "" cmd /k "%~f0"
-    exit /b 0
-) else (
-    echo [OK] ngrok installed
-)
-echo(
-
-:: ========================================
-:: 4. aiohttp (Python module)
-:: ========================================
-echo [4/5] Checking aiohttp module...
+echo [3/4] Checking aiohttp module...
 python -c "import aiohttp" > nul 2>&1
 if errorlevel 1 (
     echo [!] Installing aiohttp...
@@ -103,9 +76,9 @@ if errorlevel 1 (
 echo(
 
 :: ========================================
-:: 5. Claude CLI
+:: 4. Claude CLI
 :: ========================================
-echo [5/5] Checking Claude CLI...
+echo [4/4] Checking Claude CLI...
 where claude > nul 2>&1
 if errorlevel 1 (
     echo [!] Claude CLI not found. Installing...
@@ -133,13 +106,11 @@ echo(
 echo Installed dependencies:
 echo   - Python 3.12
 echo   - Node.js LTS
-echo   - ngrok
 echo   - aiohttp (Python)
 echo   - Claude CLI
 echo(
 echo Next step:
-echo   Run config.bat to configure ngrok settings
-echo   (authtoken, domain, OAuth)
+echo   Run run.bat to start the server
 echo(
 echo ================================================
 echo(

@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-*.sh
+.dockerignore
+
+# Workspace (별도 마운트)
+workspace/
+
+# 문서
+README.md
+*.md
+!CLAUDE.md
+
+# Windows 전용
+*.bat
+*.lnk
+
+# 임시 파일
+*.pyc
+__pycache__
+*.log
+.DS_Store

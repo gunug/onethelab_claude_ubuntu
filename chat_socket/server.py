@@ -11,6 +11,10 @@ from queue import Queue, Empty
 from aiohttp import web
 from collections import deque
 
+# OAuth 인증 모듈
+from auth import GoogleOAuth, SessionManager
+from auth.oauth import create_oauth_from_env
+
 # Windows asyncio 호환성
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -20,6 +24,11 @@ CLAUDE_TIMEOUT = 300  # Claude CLI 타임아웃 (초)
 USD_TO_KRW = 1430  # 환율
 HOST = "0.0.0.0"
 DEFAULT_PORT = 8765
+SESSION_COOKIE_NAME = "session_id"
+
+# OAuth 및 세션 관리자 (전역)
+oauth_client: GoogleOAuth = None
+session_manager: SessionManager = None
 
 # 현재 스크립트 디렉토리
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -159,7 +168,7 @@ def get_claude_blocks():
 def test_claude_cli():
     """Claude CLI 호출 테스트"""
     try:
-        cmd = 'claude "test"'
+        cmd = 'claude --version'
         print(f"[테스트] {cmd}")
         result = subprocess.run(
             cmd,
@@ -167,9 +176,11 @@ def test_claude_cli():
             text=True,
             encoding="utf-8",
             shell=True,
-            timeout=60
+            timeout=10
         )
-        return result.returncode == 0 and result.stdout
+        if result.returncode == 0:
+            print(f"  버전: {result.stdout.strip()}")
+        return result.returncode == 0
     except subprocess.TimeoutExpired:
         print("  타임아웃: Claude CLI 응답 없음")
         return False
@@ -226,13 +237,18 @@ def run_claude_stream(prompt: str, output_queue: Queue, stop_event: threading.Ev
         stderr_thread.start()
 
         # stdout 읽기
+        print(f"[DEBUG] stdout 읽기 시작, process.poll()={process.poll()}")
         try:
+            line_count = 0
             while not stop_event.is_set():
                 line = process.stdout.readline()
                 if not line:
+                    print(f"[DEBUG] stdout EOF, 총 {line_count}줄 읽음")
                     break
+                line_count += 1
                 line = line.strip()
                 if line:
+                    print(f"[DEBUG] stdout[{line_count}]: {line[:100]}...")
                     output_queue.put(("line", line))
         except Exception as e:
             output_queue.put(("error", f"stdout 읽기 오류: {e}"))
@@ -619,8 +635,179 @@ def reset_session():
 # HTTP + WebSocket 통합 서버 (aiohttp)
 # ============================================================
 
+# ============================================================
+# 인증 헬퍼 함수
+# ============================================================
+
+def get_session_from_request(request) -> dict:
+    """요청에서 세션 정보 추출"""
+    if not session_manager:
+        return None
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if not session_id:
+        return None
+    return session_manager.get_session(session_id)
+
+
+def is_authenticated(request) -> bool:
+    """인증 여부 확인"""
+    if not oauth_client:
+        # OAuth가 설정되지 않으면 인증 없이 접근 허용
+        return True
+    return get_session_from_request(request) is not None
+
+
+def get_base_url(request) -> str:
+    """요청에서 기본 URL 추출 (프로토콜 + 호스트)"""
+    # X-Forwarded-Proto 헤더 확인 (리버스 프록시 뒤에 있을 때)
+    proto = request.headers.get('X-Forwarded-Proto', request.scheme)
+    host = request.headers.get('X-Forwarded-Host', request.host)
+    return f"{proto}://{host}"
+
+
+def read_template(template_name: str, replacements: dict = None) -> str:
+    """템플릿 파일 읽기 및 변수 치환"""
+    template_path = os.path.join(SCRIPT_DIR, "templates", template_name)
+    with open(template_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    if replacements:
+        for key, value in replacements.items():
+            content = content.replace(key, value)
+
+    return content
+
+
+# ============================================================
+# 인증 라우트 핸들러
+# ============================================================
+
+async def handle_login(request):
+    """GET /login - 로그인 페이지"""
+    if is_authenticated(request):
+        # 이미 로그인됨 - 메인 페이지로 리다이렉트
+        raise web.HTTPFound('/')
+
+    error = request.query.get('error', '')
+    error_html = ''
+    if error == 'access_denied':
+        error_html = '<div class="error-message">허용되지 않은 이메일입니다. 관리자에게 문의하세요.</div>'
+    elif error == 'auth_failed':
+        error_html = '<div class="error-message">인증에 실패했습니다. 다시 시도해주세요.</div>'
+    elif error == 'invalid_state':
+        error_html = '<div class="error-message">잘못된 요청입니다. 다시 시도해주세요.</div>'
+
+    try:
+        html = read_template('login.html', {'{{ERROR_MESSAGE}}': error_html})
+        return web.Response(text=html, content_type='text/html')
+    except FileNotFoundError:
+        return web.Response(text="Login page not found", status=500)
+
+
+async def handle_google_login(request):
+    """GET /auth/google/login - Google OAuth 시작"""
+    if not oauth_client:
+        return web.Response(text="OAuth not configured", status=500)
+
+    # redirect_uri 동적 설정
+    base_url = get_base_url(request)
+    oauth_client.redirect_uri = f"{base_url}/auth/google/callback"
+
+    auth_url, state = oauth_client.get_authorization_url()
+    print(f"[OAuth] 인증 시작, redirect_uri: {oauth_client.redirect_uri}")
+
+    raise web.HTTPFound(auth_url)
+
+
+async def handle_google_callback(request):
+    """GET /auth/google/callback - Google OAuth 콜백"""
+    if not oauth_client or not session_manager:
+        return web.Response(text="OAuth not configured", status=500)
+
+    # 에러 체크
+    error = request.query.get('error')
+    if error:
+        print(f"[OAuth] Google 에러: {error}")
+        raise web.HTTPFound('/login?error=auth_failed')
+
+    # state 검증
+    state = request.query.get('state', '')
+    if not oauth_client.verify_state(state):
+        print(f"[OAuth] 잘못된 state: {state}")
+        raise web.HTTPFound('/login?error=invalid_state')
+
+    # 코드 확인
+    code = request.query.get('code')
+    if not code:
+        print("[OAuth] 코드 없음")
+        raise web.HTTPFound('/login?error=auth_failed')
+
+    # redirect_uri 동적 설정
+    base_url = get_base_url(request)
+    oauth_client.redirect_uri = f"{base_url}/auth/google/callback"
+
+    # 인증 수행
+    user_info = await oauth_client.authenticate(code)
+    if not user_info:
+        print("[OAuth] 인증 실패 또는 허용되지 않은 이메일")
+        raise web.HTTPFound('/login?error=access_denied')
+
+    # 세션 생성
+    session_id = session_manager.create_session(user_info)
+    print(f"[OAuth] 로그인 성공: {user_info.get('email')} (세션: {session_id[:8]}...)")
+
+    # 쿠키와 함께 리다이렉트
+    response = web.HTTPFound('/')
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        session_id,
+        httponly=True,
+        samesite='Lax',
+        max_age=86400  # 24시간
+    )
+    raise response
+
+
+async def handle_logout(request):
+    """GET /auth/logout - 로그아웃"""
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_id and session_manager:
+        user = session_manager.get_session(session_id)
+        if user:
+            print(f"[OAuth] 로그아웃: {user.get('email')}")
+        session_manager.delete_session(session_id)
+
+    response = web.HTTPFound('/login')
+    response.del_cookie(SESSION_COOKIE_NAME)
+    raise response
+
+
+async def handle_auth_status(request):
+    """GET /auth/status - 인증 상태 API"""
+    user = get_session_from_request(request)
+    if user:
+        return web.json_response({
+            'authenticated': True,
+            'email': user.get('email', ''),
+            'name': user.get('name', ''),
+            'picture': user.get('picture', '')
+        })
+    else:
+        return web.json_response({
+            'authenticated': False
+        })
+
+
+# ============================================================
+# 기존 핸들러 (인증 체크 추가)
+# ============================================================
+
 async def handle_index(request):
     """HTTP GET / - index.html 제공"""
+    # 인증 체크
+    if not is_authenticated(request):
+        raise web.HTTPFound('/login')
+
     index_path = os.path.join(SCRIPT_DIR, "index.html")
     if os.path.exists(index_path):
         return web.FileResponse(index_path)
@@ -662,6 +849,10 @@ async def handle_ping(request):
 
 async def handle_websocket(request):
     """WebSocket /ws - 채팅 처리"""
+    # 인증 체크
+    if not is_authenticated(request):
+        return web.Response(text="Unauthorized", status=401)
+
     ws = web.WebSocketResponse(heartbeat=30)  # 30초마다 ping/pong으로 연결 유지
     await ws.prepare(request)
 
@@ -754,6 +945,15 @@ async def handle_websocket(request):
 async def init_app():
     """aiohttp 앱 초기화"""
     app = web.Application()
+
+    # OAuth 인증 라우트
+    app.router.add_get("/login", handle_login)
+    app.router.add_get("/auth/google/login", handle_google_login)
+    app.router.add_get("/auth/google/callback", handle_google_callback)
+    app.router.add_get("/auth/logout", handle_logout)
+    app.router.add_get("/auth/status", handle_auth_status)
+
+    # 기존 라우트
     app.router.add_get("/", handle_index)
     app.router.add_get("/ws", handle_websocket)
     app.router.add_get("/ping", handle_ping)  # Keep-alive 엔드포인트
@@ -765,7 +965,7 @@ async def init_app():
 
 
 def main():
-    global session_id
+    global session_id, oauth_client, session_manager
 
     # 명령줄 인자 파싱
     parser = argparse.ArgumentParser(description="Chat Socket 통합 서버")
@@ -776,6 +976,20 @@ def main():
     print("=" * 50)
     print("Chat Socket 통합 서버 (HTTP + WebSocket)")
     print("=" * 50)
+
+    # OAuth 초기화
+    oauth_client = create_oauth_from_env()
+    if oauth_client:
+        session_manager = SessionManager(session_timeout=86400)  # 24시간
+        allowed_emails = oauth_client.allowed_emails
+        print(f"Google OAuth: 활성화")
+        if allowed_emails:
+            print(f"  허용 이메일: {', '.join(allowed_emails)}")
+        else:
+            print(f"  허용 이메일: 모든 Google 계정 (주의: 보안 위험!)")
+    else:
+        print("Google OAuth: 비활성화 (GOOGLE_CLIENT_ID/SECRET 환경 변수 없음)")
+        print("  경고: 인증 없이 누구나 접근 가능합니다!")
 
     # Claude CLI 테스트
     print("Claude CLI 테스트 중...")
